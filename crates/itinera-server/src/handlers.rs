@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
-use itinera_core::{Route, astar, dijkstra, isochrone};
+use itinera_core::{Route, astar, dijkstra, isochrone, vrp};
 use itinera_graph::{Coord, SpeedProfile};
 
 use crate::state::AppState;
@@ -19,6 +19,7 @@ pub fn router(state: AppState) -> Router {
         .route("/route", get(route_handler))
         .route("/nearest", get(nearest_handler))
         .route("/isochrone", get(isochrone_handler))
+        .route("/delivery/optimize", axum::routing::post(delivery_optimize))
         .route("/health", get(health_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -254,4 +255,95 @@ fn resolve_profile(
 
 fn bad_request(msg: String) -> (StatusCode, Json<ErrorResponse>) {
     (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: msg }))
+}
+
+// === Delivery Optimization ===
+
+#[derive(Debug, Deserialize)]
+struct DeliveryOptimizeRequest {
+    depot: LatLng,
+    stops: Vec<DeliveryStop>,
+    #[serde(default = "default_true")]
+    return_to_depot: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+struct DeliveryStop {
+    id: String,
+    lat: f64,
+    lng: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct LatLng {
+    lat: f64,
+    lng: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct DeliveryOptimizeResponse {
+    ordered_stops: Vec<OrderedStop>,
+    total_distance_m: f64,
+    estimated_duration_s: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct OrderedStop {
+    id: String,
+    lat: f64,
+    lng: f64,
+    sequence: usize,
+}
+
+async fn delivery_optimize(
+    Json(req): Json<DeliveryOptimizeRequest>,
+) -> Result<Json<DeliveryOptimizeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if req.stops.is_empty() {
+        return Err(bad_request("at least one stop required".into()));
+    }
+    if req.stops.len() > 500 {
+        return Err(bad_request("max 500 stops supported".into()));
+    }
+
+    let depot = vrp::Stop {
+        id: "depot".into(),
+        lat: req.depot.lat,
+        lng: req.depot.lng,
+    };
+    let stops: Vec<vrp::Stop> = req
+        .stops
+        .iter()
+        .map(|s| vrp::Stop {
+            id: s.id.clone(),
+            lat: s.lat,
+            lng: s.lng,
+        })
+        .collect();
+
+    let result = vrp::optimize_route(&depot, &stops, req.return_to_depot);
+
+    let ordered_stops: Vec<OrderedStop> = result
+        .order
+        .iter()
+        .enumerate()
+        .map(|(seq, &idx)| OrderedStop {
+            id: stops[idx].id.clone(),
+            lat: stops[idx].lat,
+            lng: stops[idx].lng,
+            sequence: seq + 1,
+        })
+        .collect();
+
+    // Rough duration estimate: assume 30 km/h average for urban delivery
+    let duration_s = result.total_distance / (30_000.0 / 3600.0);
+
+    Ok(Json(DeliveryOptimizeResponse {
+        ordered_stops,
+        total_distance_m: result.total_distance,
+        estimated_duration_s: duration_s,
+    }))
 }
