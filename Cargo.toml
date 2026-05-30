@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/TileTopia-HQ/itinera"
+repository = "https://github.com/GeoLang/itinera"
 authors = ["TileTopia <tiletopia@proton.me>"]
 description = "Routing engine with Dijkstra, isochrones, and map matching"
 

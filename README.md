@@ -7,9 +7,9 @@ Zero C dependencies. WASM-capable. Blazing fast.
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![Tests](https://img.shields.io/badge/tests-43_passing-brightgreen)
-![CI](https://github.com/TileTopia-HQ/itinera/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
-[Documentation](https://tiletopia-hq.github.io/itinera/) · [GitHub](https://github.com/TileTopia-HQ/itinera)
+[Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
 
 ---
 
@@ -67,7 +67,7 @@ itinera/
 
 ```bash
 # Build from source
-git clone https://github.com/TileTopia-HQ/itinera.git
+git clone https://github.com/GeoLang/itinera.git
 cd itinera && cargo build --release
 
 # Import OSM data (supports .osm and .osm.pbf)
@@ -182,4 +182,4 @@ cargo build --release
 
 This project is licensed under [AGPL-3.0-or-later](LICENSE).
 
-Copyright © 2025 [TileTopia](https://github.com/TileTopia-HQ)
+Copyright © 2025 [GeoLang](https://github.com/GeoLang)
