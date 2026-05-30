@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Itinera Routing API
+  version: 0.1.0
+  description: Turn-by-turn routing engine with contraction hierarchies.
+  license:
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    email: tiletopia@proton.me
+
+servers:
+  - url: http://localhost:3002
+    description: Local development
+
+paths:
+  /route:
+    get:
+      summary: Calculate route
+      description: Find the shortest/fastest path between waypoints.
+      parameters:
+        - name: origin
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Origin coordinates as lon,lat"
+          example: "-0.1278,51.5074"
+        - name: destination
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Destination coordinates as lon,lat"
+          example: "-0.0762,51.5085"
+        - name: profile
+          in: query
+          schema:
+            type: string
+            enum: [car, bicycle, foot]
+            default: car
+        - name: alternatives
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Route result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+
+  /nearest:
+    get:
+      summary: Snap to nearest road
+      description: Find the nearest routable point on the road network.
+      parameters:
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+      responses:
+        '200':
+          description: Nearest point result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NearestResult'
+
+  /isochrone:
+    get:
+      summary: Generate isochrone
+      description: Calculate reachable area from a point within a time/distance limit.
+      parameters:
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: minutes
+          in: query
+          schema:
+            type: number
+            format: double
+            default: 10
+        - name: profile
+          in: query
+          schema:
+            type: string
+            enum: [car, bicycle, foot]
+            default: car
+      responses:
+        '200':
+          description: Isochrone polygon
+          content:
+            application/json:
+              schema:
+                type: object
+                description: GeoJSON Polygon
+
+  /delivery/optimize:
+    post:
+      summary: Optimize delivery route
+      description: Solve the traveling salesman problem for a set of delivery points.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                depot:
+                  type: string
+                  description: "Depot coordinates as lon,lat"
+                stops:
+                  type: array
+                  items:
+                    type: string
+                    description: "Stop coordinates as lon,lat"
+      responses:
+        '200':
+          description: Optimized route order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    type: array
+                    items:
+                      type: integer
+                  total_distance:
+                    type: number
+                  total_duration:
+                    type: number
+
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+
+components:
+  schemas:
+    RouteResponse:
+      type: object
+      properties:
+        distance:
+          type: number
+          description: Total distance in meters
+        duration:
+          type: number
+          description: Total duration in seconds
+        geometry:
+          type: object
+          description: GeoJSON LineString
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteStep'
+
+    RouteStep:
+      type: object
+      properties:
+        instruction:
+          type: string
+        distance:
+          type: number
+        duration:
+          type: number
+        name:
+          type: string
+
+    NearestResult:
+      type: object
+      properties:
+        lon:
+          type: number
+          format: double
+        lat:
+          type: number
+          format: double
+        distance:
+          type: number
+          description: Distance to nearest point in meters
