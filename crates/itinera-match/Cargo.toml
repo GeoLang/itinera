@@ -1,0 +1,14 @@
+[package]
+name = "itinera-match"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "HMM-based map matching for GPS trace snapping to road networks"
+
+[dependencies]
+itinera-graph = { workspace = true }
+serde = { workspace = true }
+uuid = { version = "1", features = ["v4", "serde"] }
+tracing = "0.1"

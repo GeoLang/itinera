@@ -12,6 +12,7 @@ authors = ["TileTopia <tiletopia@proton.me>"]
 [workspace.dependencies]
 itinera-core = { path = "crates/itinera-core" }
 itinera-graph = { path = "crates/itinera-graph" }
+itinera-match = { path = "crates/itinera-match" }
 itinera-osm = { path = "crates/itinera-osm" }
 itinera-server = { path = "crates/itinera-server" }
 serde = { version = "1", features = ["derive"] }
