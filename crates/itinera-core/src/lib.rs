@@ -8,6 +8,7 @@ mod dijkstra;
 mod error;
 mod isochrone;
 mod maneuver;
+pub mod network_analysis;
 mod route;
 pub mod vrp;
 
