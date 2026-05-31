@@ -11,6 +11,6 @@ authors.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = "1"
-rstar = "0.12"
+rstar = "0.13"
 
 [dev-dependencies]
