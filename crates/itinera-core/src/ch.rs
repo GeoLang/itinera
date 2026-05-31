@@ -12,7 +12,7 @@ use itinera_graph::{Edge, Graph, NodeId, SpeedProfile};
 pub struct ContractionHierarchy {
     /// The augmented graph with shortcut edges and CH levels set.
     pub graph: Graph,
-    /// Node ordering (node_order[i] = the i-th node to be contracted).
+    /// Node ordering (`node_order[i]` = the i-th node to be contracted).
     pub node_order: Vec<NodeId>,
     /// For each edge in the augmented graph, the middle node if it's a shortcut.
     pub shortcut_middle: Vec<Option<NodeId>>,
