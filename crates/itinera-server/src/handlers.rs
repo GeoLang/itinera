@@ -2,6 +2,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::StatusCode,
+    middleware,
     response::Json,
     routing::get,
 };
@@ -13,15 +14,23 @@ use itinera_core::{Route, astar, dijkstra, isochrone, vrp};
 use itinera_graph::{Coord, SpeedProfile};
 
 use crate::state::AppState;
+use crate::{auth, metrics};
 
 /// Build the HTTP router.
 pub fn router(state: AppState) -> Router {
+    // Install Prometheus metrics
+    metrics::install();
+
     Router::new()
         .route("/route", get(route_handler))
         .route("/nearest", get(nearest_handler))
         .route("/isochrone", get(isochrone_handler))
         .route("/delivery/optimize", axum::routing::post(delivery_optimize))
         .route("/health", get(health_handler))
+        .route("/healthz", get(liveness_handler))
+        .route("/readyz", get(readiness_handler))
+        .route("/metrics", get(metrics::metrics_handler))
+        .layer(middleware::from_fn(auth::auth_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -98,10 +107,25 @@ async fn health_handler() -> &'static str {
     "ok"
 }
 
+/// Liveness probe — always returns 200 if the process is running.
+async fn liveness_handler() -> &'static str {
+    "ok"
+}
+
+/// Readiness probe — checks that a graph is loaded.
+async fn readiness_handler(State(state): State<AppState>) -> (StatusCode, &'static str) {
+    if state.graph.num_nodes() > 0 {
+        (StatusCode::OK, "ready")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "not ready")
+    }
+}
+
 async fn route_handler(
     State(state): State<AppState>,
     Query(params): Query<RouteQuery>,
 ) -> Result<Json<RouteResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_route_requests").increment(1);
     let from = parse_coord(&params.from).map_err(bad_request)?;
     let to = parse_coord(&params.to).map_err(bad_request)?;
 
@@ -184,6 +208,7 @@ async fn nearest_handler(
     State(state): State<AppState>,
     Query(params): Query<NearestQuery>,
 ) -> Result<Json<NearestResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_nearest_requests").increment(1);
     let coord = Coord::new(params.lat, params.lon);
     let node_id = state
         .graph
@@ -205,6 +230,7 @@ async fn isochrone_handler(
     State(state): State<AppState>,
     Query(params): Query<IsochroneQuery>,
 ) -> Result<Json<IsochroneResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_isochrone_requests").increment(1);
     let coord = Coord::new(params.lat, params.lon);
     let profile = resolve_profile(params.profile.as_deref(), &state.profile)?;
 
@@ -304,6 +330,7 @@ struct OrderedStop {
 async fn delivery_optimize(
     Json(req): Json<DeliveryOptimizeRequest>,
 ) -> Result<Json<DeliveryOptimizeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_delivery_requests").increment(1);
     if req.stops.is_empty() {
         return Err(bad_request("at least one stop required".into()));
     }
