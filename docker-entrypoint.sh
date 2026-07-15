@@ -1,10 +1,19 @@
 #!/bin/sh
 set -e
 
+# bind-mounted /data is often owned by the host user; take ownership so the
+# unprivileged itinera user can build and read the graph
+if [ "$(id -u)" = "0" ]; then
+    chown -R itinera:itinera /data
+    run_as="setpriv --reuid itinera --regid itinera --clear-groups"
+else
+    run_as=""
+fi
+
 # If OSM file exists and graph hasn't been built yet, import it
 if [ -f /data/region.osm.pbf ] && [ ! -f /data/graph.bin ]; then
     echo "Building routing graph from /data/region.osm.pbf..."
-    itinera import --input /data/region.osm.pbf --output /data/graph.bin
+    $run_as itinera import --input /data/region.osm.pbf --output /data/graph.bin
     echo "Graph built successfully."
 fi
 
@@ -17,4 +26,4 @@ if [ ! -f /data/graph.bin ]; then
     exec sleep infinity
 fi
 
-exec itinera "$@"
+exec $run_as itinera "$@"

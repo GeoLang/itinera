@@ -16,6 +16,9 @@ RUN useradd -r -s /bin/false itinera && \
 COPY --from=builder /app/target/release/itinera /usr/local/bin/itinera
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
+# bind-mount deployments should override this with a host-matching uid
+# (compose `user:`); when run as root the entrypoint chowns /data and
+# drops to the itinera user via setpriv
 USER itinera
 
 ENV RUST_LOG=info,itinera=debug
