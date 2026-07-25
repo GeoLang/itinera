@@ -1,11 +1,18 @@
 #!/bin/sh
 set -e
 
-# bind-mounted /data is often owned by the host user; take ownership so the
-# unprivileged itinera user can build and read the graph
+# Drop privileges to whoever owns /data so the graph can be written either way:
+# a bind mount arrives owned by the host user (chowning it would clobber the
+# host's own files), a named volume comes up root-owned and is handed to itinera.
 if [ "$(id -u)" = "0" ]; then
-    chown -R itinera:itinera /data
-    run_as="setpriv --reuid itinera --regid itinera --clear-groups"
+    data_uid=$(stat -c %u /data)
+    data_gid=$(stat -c %g /data)
+    if [ "$data_uid" = "0" ]; then
+        chown -R itinera:itinera /data
+        data_uid=$(id -u itinera)
+        data_gid=$(id -g itinera)
+    fi
+    run_as="setpriv --reuid $data_uid --regid $data_gid --clear-groups"
 else
     run_as=""
 fi

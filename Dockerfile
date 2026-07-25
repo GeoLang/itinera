@@ -16,10 +16,9 @@ RUN useradd -r -s /bin/false itinera && \
 COPY --from=builder /app/target/release/itinera /usr/local/bin/itinera
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# bind-mount deployments should override this with a host-matching uid
-# (compose `user:`); when run as root the entrypoint chowns /data and
-# drops to the itinera user via setpriv
-USER itinera
+# no USER: the entrypoint starts as root, then drops to whoever owns /data
+# (the host user for a bind mount, itinera for a named volume) via setpriv.
+# A baked-in USER can't write a bind-mounted host directory.
 
 ENV RUST_LOG=info,itinera=debug
 ENV ITINERA_PORT=3000
