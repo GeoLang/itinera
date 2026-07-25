@@ -181,6 +181,6 @@ cargo build --release
 
 ## License
 
-This project is licensed under [AGPL-3.0-or-later](LICENSE).
+AGPL-3.0-or-later, see [LICENSE](LICENSE).
 
-Copyright © 2025 [GeoLang](https://github.com/GeoLang)
+Copyright (C) 2026 Grok Image Compression Inc.
