@@ -6,7 +6,7 @@ Zero C dependencies. WASM-capable. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-43_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-62_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
@@ -57,6 +57,7 @@ itinera/
 │   ├── itinera-graph/    # CSR graph, nodes, edges, profiles, R-tree
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
+│   ├── itinera-match/    # HMM map matching of GPS traces to the graph
 │   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone)
 │   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
 └── docs/                 # GitHub Pages documentation
@@ -72,10 +73,10 @@ git clone https://github.com/GeoLang/itinera.git
 cd itinera && cargo build --release
 
 # Import OSM data (supports .osm and .osm.pbf)
-itinera import --input region.osm.pbf --output graph.bin --profile car
+itinera import --input region.osm.pbf --output graph.bin
 
 # Pre-build Contraction Hierarchies
-itinera preprocess --graph graph.bin --output ch.bin
+itinera preprocess --graph graph.bin --output ch.bin --profile car
 
 # Start the routing server
 itinera serve --bind 0.0.0.0:5000 --graph graph.bin --ch ch.bin
@@ -102,7 +103,10 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 | `GET /route?from=lat,lon&to=lat,lon` | Compute shortest route |
 | `GET /nearest?lat=...&lon=...` | Find nearest graph node |
 | `GET /isochrone?lat=...&lon=...&max_seconds=...` | Reachability polygon |
+| `POST /delivery/optimize` | Vehicle routing for a set of stops |
 | `GET /health` | Health check |
+| `GET /healthz`, `GET /readyz` | Liveness and readiness probes |
+| `GET /metrics` | Prometheus metrics |
 
 **Query parameters:**
 - `profile` — `car` (default), `bicycle`, `pedestrian`, `truck`
@@ -138,12 +142,12 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 
 ## Routing Profiles
 
-| Profile | Motorway | Trunk | Primary | Secondary | Tertiary | Residential |
-|---------|----------|-------|---------|-----------|----------|-------------|
-| Car | 130 | 100 | 80 | 60 | 50 | 30 |
-| Truck | 90 | 80 | 60 | 50 | 40 | 20 |
-| Bicycle | — | 25 | 22 | 20 | 18 | 15 |
-| Pedestrian | — | 5 | 5 | 5 | 5 | 5 |
+| Profile | Motorway | Trunk | Primary | Secondary | Tertiary | Unclassified | Residential |
+|---------|----------|-------|---------|-----------|----------|--------------|-------------|
+| Car | 130 | 100 | 80 | 60 | 50 | 40 | 30 |
+| Truck | 90 | 80 | 60 | 50 | 40 | 30 | 20 |
+| Bicycle | — | 25 | 22 | 20 | 18 | 16 | 15 |
+| Pedestrian | — | 5 | 5 | 5 | 5 | 5 | 5 |
 
 Speeds in km/h. "—" means road class is inaccessible for that mode.
 

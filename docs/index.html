@@ -50,7 +50,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <div class="badges">
 <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
 <img src="https://img.shields.io/badge/Rust-2024-orange" alt="Rust">
-<img src="https://img.shields.io/badge/tests-43_passing-brightgreen" alt="Tests">
+<img src="https://img.shields.io/badge/tests-62_passing-brightgreen" alt="Tests">
 <img src="https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg" alt="CI">
 </div>
 <div class="hero">
@@ -59,8 +59,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <a href="#comparison" class="secondary">vs Competitors</a>
 </div>
 <div class="stats">
-<div class="stat"><div class="num">5</div><div class="label">Rust crates</div></div>
-<div class="stat"><div class="num">43</div><div class="label">Unit tests</div></div>
+<div class="stat"><div class="num">6</div><div class="label">Rust crates</div></div>
+<div class="stat"><div class="num">62</div><div class="label">Unit tests</div></div>
 <div class="stat"><div class="num">&lt;1ms</div><div class="label">CH query time</div></div>
 <div class="stat"><div class="num">0</div><div class="label">C dependencies</div></div>
 </div>
@@ -173,6 +173,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 │   ├── itinera-graph/    # CSR graph, nodes, edges, profiles, R-tree
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
+│   ├── itinera-match/    # HMM map matching of GPS traces to the graph
 │   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone)
 │   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
 └── docs/                 # This page</pre>
@@ -190,7 +191,10 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><td>GET</td><td><code>/route?from=lat,lon&amp;to=lat,lon</code></td><td>Compute shortest route</td></tr>
 <tr><td>GET</td><td><code>/nearest?lat=...&amp;lon=...</code></td><td>Find nearest graph node</td></tr>
 <tr><td>GET</td><td><code>/isochrone?lat=...&amp;lon=...&amp;max_seconds=...</code></td><td>Reachability polygon</td></tr>
+<tr><td>POST</td><td><code>/delivery/optimize</code></td><td>Vehicle routing for a set of stops</td></tr>
 <tr><td>GET</td><td><code>/health</code></td><td>Health check</td></tr>
+<tr><td>GET</td><td><code>/healthz</code>, <code>/readyz</code></td><td>Liveness and readiness probes</td></tr>
+<tr><td>GET</td><td><code>/metrics</code></td><td>Prometheus metrics</td></tr>
 </tbody>
 </table>
 <p style="margin-top:16px;color:var(--muted)"><strong>Query params:</strong> <code>profile</code> (car|bicycle|pedestrian|truck), <code>algorithm</code> (dijkstra|astar|ch)</p>
@@ -205,10 +209,10 @@ git clone https://github.com/GeoLang/itinera.git
 cd itinera &amp;&amp; cargo build --release
 
 # Import OSM data
-itinera import --input region.osm.pbf --output graph.bin --profile car
+itinera import --input region.osm.pbf --output graph.bin
 
 # Pre-build Contraction Hierarchies
-itinera preprocess --graph graph.bin --output ch.bin
+itinera preprocess --graph graph.bin --output ch.bin --profile car
 
 # Start the routing server
 itinera serve --bind 0.0.0.0:5000 --graph graph.bin --ch ch.bin
