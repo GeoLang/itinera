@@ -1,17 +1,19 @@
+use std::collections::HashMap;
+
 use axum::{
     Router,
     extract::{Query, State},
     http::StatusCode,
     middleware,
     response::Json,
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use itinera_core::{Route, astar, dijkstra, isochrone, vrp};
-use itinera_graph::{Coord, SpeedProfile};
+use itinera_core::{Route, astar, dijkstra, isochrone, network_analysis, vrp};
+use itinera_graph::{Coord, Graph, NodeId, SpeedProfile};
 
 use crate::state::AppState;
 use crate::{auth, metrics};
@@ -25,7 +27,11 @@ pub fn router(state: AppState) -> Router {
         .route("/route", get(route_handler))
         .route("/nearest", get(nearest_handler))
         .route("/isochrone", get(isochrone_handler))
-        .route("/delivery/optimize", axum::routing::post(delivery_optimize))
+        .route("/delivery/optimize", post(delivery_optimize))
+        .route("/network/components", post(network_components))
+        .route("/network/od-matrix", post(network_od_matrix))
+        .route("/network/closest-facility", post(network_closest_facility))
+        .route("/network/betweenness", post(network_betweenness))
         .route("/health", get(health_handler))
         .route("/healthz", get(liveness_handler))
         .route("/readyz", get(readiness_handler))
@@ -375,4 +381,303 @@ async fn delivery_optimize(
         total_distance_m: result.total_distance,
         estimated_duration_s: duration_s,
     }))
+}
+
+// === Network Analysis ===
+
+// od matrix and closest facility run one dijkstra per pair, and betweenness one
+// per sampled source, so every request is capped up front
+const MAX_NETWORK_POINTS: usize = 100;
+const MAX_NETWORK_PAIRS: usize = 2500;
+const MAX_BETWEENNESS_SAMPLE: usize = 1000;
+const MAX_TOP_K: usize = 1000;
+const DEFAULT_TOP_K: usize = 20;
+const DEFAULT_BETWEENNESS_SAMPLE: usize = 64;
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct Point {
+    lat: f64,
+    lon: f64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ComponentsRequest {
+    /// Number of components to return, largest first (default 20).
+    top_k: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OdMatrixRequest {
+    origins: Vec<Point>,
+    destinations: Vec<Point>,
+    profile: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClosestFacilityRequest {
+    demand_points: Vec<Point>,
+    facilities: Vec<Point>,
+    profile: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BetweennessRequest {
+    /// Number of source nodes to sample (default 64).
+    sample_size: Option<usize>,
+    /// Number of nodes to return, highest score first (default 20).
+    top_k: Option<usize>,
+    profile: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ComponentsResponse {
+    num_nodes: usize,
+    num_components: u32,
+    largest_component_size: usize,
+    components: Vec<ComponentSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct ComponentSummary {
+    component_id: u32,
+    size: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct OdMatrixResponse {
+    entries: Vec<OdEntryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct OdEntryResponse {
+    origin_index: usize,
+    destination_index: usize,
+    origin_node: u32,
+    destination_node: u32,
+    duration_s: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct ClosestFacilityResponse {
+    assignments: Vec<FacilityAssignment>,
+    /// Demand points with no reachable facility.
+    unreachable: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct FacilityAssignment {
+    demand_index: usize,
+    facility_index: usize,
+    demand_node: u32,
+    facility_node: u32,
+    duration_s: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct BetweennessResponse {
+    sampled_sources: usize,
+    nodes: Vec<CentralityEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct CentralityEntry {
+    node_id: u32,
+    lat: f64,
+    lon: f64,
+    score: f64,
+}
+
+async fn network_components(
+    State(state): State<AppState>,
+    body: Option<Json<ComponentsRequest>>,
+) -> Result<Json<ComponentsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_network_components_requests").increment(1);
+    let req = body.map(|Json(req)| req).unwrap_or_default();
+    let top_k = resolve_top_k(req.top_k)?;
+
+    let result = network_analysis::connected_components(&state.graph);
+
+    let mut components: Vec<ComponentSummary> = result
+        .component_sizes
+        .iter()
+        .map(|(&component_id, &size)| ComponentSummary { component_id, size })
+        .collect();
+    components.sort_by(|a, b| {
+        b.size
+            .cmp(&a.size)
+            .then_with(|| a.component_id.cmp(&b.component_id))
+    });
+    let largest_component_size = components.first().map_or(0, |c| c.size);
+    components.truncate(top_k);
+
+    Ok(Json(ComponentsResponse {
+        num_nodes: state.graph.num_nodes(),
+        num_components: result.num_components,
+        largest_component_size,
+        components,
+    }))
+}
+
+async fn network_od_matrix(
+    State(state): State<AppState>,
+    Json(req): Json<OdMatrixRequest>,
+) -> Result<Json<OdMatrixResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_network_od_matrix_requests").increment(1);
+    let profile = resolve_profile(req.profile.as_deref(), &state.profile)?;
+    check_points("origins", &req.origins)?;
+    check_points("destinations", &req.destinations)?;
+    check_pairs(req.origins.len() * req.destinations.len())?;
+
+    let origins = snap_points(&state.graph, &req.origins)?;
+    let destinations = snap_points(&state.graph, &req.destinations)?;
+    let origin_index = index_by_node(&origins);
+    let destination_index = index_by_node(&destinations);
+
+    let mut entries: Vec<OdEntryResponse> =
+        network_analysis::od_matrix(&state.graph, &origins, &destinations, &profile)
+            .into_iter()
+            .map(|entry| OdEntryResponse {
+                origin_index: origin_index[&entry.origin],
+                destination_index: destination_index[&entry.destination],
+                origin_node: entry.origin.0,
+                destination_node: entry.destination.0,
+                duration_s: entry.cost,
+            })
+            .collect();
+    // od_matrix iterates destinations as a set, so impose an order here
+    entries.sort_by_key(|e| (e.origin_index, e.destination_index));
+
+    Ok(Json(OdMatrixResponse { entries }))
+}
+
+async fn network_closest_facility(
+    State(state): State<AppState>,
+    Json(req): Json<ClosestFacilityRequest>,
+) -> Result<Json<ClosestFacilityResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_network_closest_facility_requests").increment(1);
+    let profile = resolve_profile(req.profile.as_deref(), &state.profile)?;
+    check_points("demand_points", &req.demand_points)?;
+    check_points("facilities", &req.facilities)?;
+    check_pairs(req.demand_points.len() * req.facilities.len())?;
+
+    let demand = snap_points(&state.graph, &req.demand_points)?;
+    let facilities = snap_points(&state.graph, &req.facilities)?;
+    let demand_index = index_by_node(&demand);
+    let facility_index = index_by_node(&facilities);
+
+    let results = network_analysis::closest_facility(&state.graph, &demand, &facilities, &profile);
+    let unreachable = demand.len() - results.len();
+
+    let assignments: Vec<FacilityAssignment> = results
+        .into_iter()
+        .map(|r| FacilityAssignment {
+            demand_index: demand_index[&r.demand_node],
+            facility_index: facility_index[&r.facility_node],
+            demand_node: r.demand_node.0,
+            facility_node: r.facility_node.0,
+            duration_s: r.cost,
+        })
+        .collect();
+
+    Ok(Json(ClosestFacilityResponse {
+        assignments,
+        unreachable,
+    }))
+}
+
+async fn network_betweenness(
+    State(state): State<AppState>,
+    Json(req): Json<BetweennessRequest>,
+) -> Result<Json<BetweennessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_network_betweenness_requests").increment(1);
+    let profile = resolve_profile(req.profile.as_deref(), &state.profile)?;
+    let top_k = resolve_top_k(req.top_k)?;
+
+    let sample_size = req.sample_size.unwrap_or(DEFAULT_BETWEENNESS_SAMPLE);
+    if sample_size == 0 || sample_size > MAX_BETWEENNESS_SAMPLE {
+        return Err(bad_request(format!(
+            "sample_size must be between 1 and {MAX_BETWEENNESS_SAMPLE}"
+        )));
+    }
+
+    let scores = network_analysis::betweenness_centrality(&state.graph, &profile, sample_size);
+
+    let mut nodes: Vec<CentralityEntry> = scores
+        .into_iter()
+        .filter_map(|(node, score)| {
+            let coord = state.graph.node_coord(node)?;
+            Some(CentralityEntry {
+                node_id: node.0,
+                lat: coord.lat,
+                lon: coord.lon,
+                score,
+            })
+        })
+        .collect();
+    nodes.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.node_id.cmp(&b.node_id))
+    });
+    nodes.truncate(top_k);
+
+    Ok(Json(BetweennessResponse {
+        sampled_sources: sample_size.min(state.graph.num_nodes()),
+        nodes,
+    }))
+}
+
+fn check_points(name: &str, points: &[Point]) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if points.is_empty() {
+        return Err(bad_request(format!("{name} must not be empty")));
+    }
+    if points.len() > MAX_NETWORK_POINTS {
+        return Err(bad_request(format!(
+            "{name} has {} points, max {MAX_NETWORK_POINTS}",
+            points.len()
+        )));
+    }
+    Ok(())
+}
+
+fn check_pairs(pairs: usize) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if pairs > MAX_NETWORK_PAIRS {
+        return Err(bad_request(format!(
+            "{pairs} pairs requested, max {MAX_NETWORK_PAIRS}"
+        )));
+    }
+    Ok(())
+}
+
+fn resolve_top_k(top_k: Option<usize>) -> Result<usize, (StatusCode, Json<ErrorResponse>)> {
+    let top_k = top_k.unwrap_or(DEFAULT_TOP_K);
+    if top_k == 0 || top_k > MAX_TOP_K {
+        return Err(bad_request(format!(
+            "top_k must be between 1 and {MAX_TOP_K}"
+        )));
+    }
+    Ok(top_k)
+}
+
+fn snap_points(
+    graph: &Graph,
+    points: &[Point],
+) -> Result<Vec<NodeId>, (StatusCode, Json<ErrorResponse>)> {
+    points
+        .iter()
+        .map(|p| {
+            graph
+                .nearest_node(Coord::new(p.lat, p.lon))
+                .ok_or_else(|| bad_request(format!("no node found near {},{}", p.lat, p.lon)))
+        })
+        .collect()
+}
+
+/// Map each snapped node back to the first request point that produced it.
+fn index_by_node(nodes: &[NodeId]) -> HashMap<NodeId, usize> {
+    let mut map = HashMap::new();
+    for (index, &node) in nodes.iter().enumerate() {
+        map.entry(node).or_insert(index);
+    }
+    map
 }

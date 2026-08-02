@@ -192,6 +192,10 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><td>GET</td><td><code>/nearest?lat=...&amp;lon=...</code></td><td>Find nearest graph node</td></tr>
 <tr><td>GET</td><td><code>/isochrone?lat=...&amp;lon=...&amp;max_seconds=...</code></td><td>Reachability polygon</td></tr>
 <tr><td>POST</td><td><code>/delivery/optimize</code></td><td>Vehicle routing for a set of stops</td></tr>
+<tr><td>POST</td><td><code>/network/components</code></td><td>Connected components of the graph</td></tr>
+<tr><td>POST</td><td><code>/network/od-matrix</code></td><td>Origin-destination travel time matrix</td></tr>
+<tr><td>POST</td><td><code>/network/closest-facility</code></td><td>Nearest facility for each demand point</td></tr>
+<tr><td>POST</td><td><code>/network/betweenness</code></td><td>Approximate betweenness centrality</td></tr>
 <tr><td>GET</td><td><code>/health</code></td><td>Health check</td></tr>
 <tr><td>GET</td><td><code>/healthz</code>, <code>/readyz</code></td><td>Liveness and readiness probes</td></tr>
 <tr><td>GET</td><td><code>/metrics</code></td><td>Prometheus metrics</td></tr>

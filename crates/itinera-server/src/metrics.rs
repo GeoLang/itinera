@@ -8,10 +8,12 @@ static PROMETHEUS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
 
 /// Install the Prometheus metrics recorder. Call once at startup.
 pub fn install() {
-    let handle = PrometheusBuilder::new()
-        .install_recorder()
-        .expect("failed to install Prometheus recorder");
-    PROMETHEUS_HANDLE.set(handle).ok();
+    // get_or_init keeps this a no-op if a router was already built
+    PROMETHEUS_HANDLE.get_or_init(|| {
+        PrometheusBuilder::new()
+            .install_recorder()
+            .expect("failed to install Prometheus recorder")
+    });
 
     metrics::describe_counter!("itinera_requests_total", "Total HTTP requests");
     metrics::describe_counter!("itinera_route_requests", "Route calculation requests");
@@ -20,6 +22,19 @@ pub fn install() {
     metrics::describe_counter!(
         "itinera_delivery_requests",
         "Delivery optimization requests"
+    );
+    metrics::describe_counter!(
+        "itinera_network_components_requests",
+        "Connected component requests"
+    );
+    metrics::describe_counter!("itinera_network_od_matrix_requests", "OD matrix requests");
+    metrics::describe_counter!(
+        "itinera_network_closest_facility_requests",
+        "Closest facility requests"
+    );
+    metrics::describe_counter!(
+        "itinera_network_betweenness_requests",
+        "Betweenness centrality requests"
     );
     metrics::describe_histogram!(
         "itinera_route_duration_seconds",

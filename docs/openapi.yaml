@@ -10,40 +10,45 @@ info:
     email: tiletopia@proton.me
 
 servers:
-  - url: http://localhost:3002
-    description: Local development
+  - url: http://localhost:5000
+    description: Default bind of `itinera serve`
+  - url: http://localhost:3000
+    description: Default bind of the Docker image
+
+security:
+  - bearerAuth: []
 
 paths:
   /route:
     get:
       summary: Calculate route
-      description: Find the shortest/fastest path between waypoints.
+      description: Find the fastest path between two coordinates.
       parameters:
-        - name: origin
+        - name: from
           in: query
           required: true
           schema:
             type: string
-          description: "Origin coordinates as lon,lat"
-          example: "-0.1278,51.5074"
-        - name: destination
+          description: "Source coordinate as lat,lon"
+          example: "51.5074,-0.1278"
+        - name: to
           in: query
           required: true
           schema:
             type: string
-          description: "Destination coordinates as lon,lat"
-          example: "-0.0762,51.5085"
+          description: "Target coordinate as lat,lon"
+          example: "51.5085,-0.0762"
         - name: profile
           in: query
           schema:
-            type: string
-            enum: [car, bicycle, foot]
-            default: car
-        - name: alternatives
+            $ref: '#/components/schemas/Profile'
+        - name: algorithm
           in: query
           schema:
-            type: integer
-            default: 0
+            type: string
+            enum: [dijkstra, astar, ch]
+            default: astar
+          description: "`ch` requires a preprocessed contraction hierarchy"
       responses:
         '200':
           description: Route result
@@ -51,19 +56,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RouteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No route between the two nodes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /nearest:
     get:
-      summary: Snap to nearest road
-      description: Find the nearest routable point on the road network.
+      summary: Snap to nearest node
+      description: Find the nearest node on the road network.
       parameters:
-        - name: lon
+        - name: lat
           in: query
           required: true
           schema:
             type: number
             format: double
-        - name: lat
+        - name: lon
           in: query
           required: true
           schema:
@@ -71,54 +86,315 @@ paths:
             format: double
       responses:
         '200':
-          description: Nearest point result
+          description: Nearest node
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NearestResult'
+                $ref: '#/components/schemas/NearestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /isochrone:
     get:
       summary: Generate isochrone
-      description: Calculate reachable area from a point within a time/distance limit.
+      description: Calculate the area reachable from a point within a time budget.
       parameters:
-        - name: lon
-          in: query
-          required: true
-          schema:
-            type: number
-            format: double
         - name: lat
           in: query
           required: true
           schema:
             type: number
             format: double
-        - name: minutes
+        - name: lon
           in: query
+          required: true
           schema:
             type: number
             format: double
-            default: 10
+        - name: max_seconds
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+          description: Travel time budget in seconds
         - name: profile
           in: query
           schema:
-            type: string
-            enum: [car, bicycle, foot]
-            default: car
+            $ref: '#/components/schemas/Profile'
       responses:
         '200':
-          description: Isochrone polygon
+          description: Reachable area
           content:
             application/json:
               schema:
                 type: object
-                description: GeoJSON Polygon
+                properties:
+                  reachable_nodes:
+                    type: integer
+                  boundary:
+                    type: array
+                    description: Convex hull of the reachable nodes
+                    items:
+                      $ref: '#/components/schemas/LatLonPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /delivery/optimize:
     post:
       summary: Optimize delivery route
-      description: Solve the traveling salesman problem for a set of delivery points.
+      description: Order a set of stops into a short tour from a depot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [depot, stops]
+              properties:
+                depot:
+                  type: object
+                  required: [lat, lng]
+                  properties:
+                    lat:
+                      type: number
+                      format: double
+                    lng:
+                      type: number
+                      format: double
+                stops:
+                  type: array
+                  description: 1 to 500 stops
+                  items:
+                    type: object
+                    required: [id, lat, lng]
+                    properties:
+                      id:
+                        type: string
+                      lat:
+                        type: number
+                        format: double
+                      lng:
+                        type: number
+                        format: double
+                return_to_depot:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Optimized stop order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ordered_stops:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        lat:
+                          type: number
+                          format: double
+                        lng:
+                          type: number
+                          format: double
+                        sequence:
+                          type: integer
+                          description: 1-based position in the tour
+                  total_distance_m:
+                    type: number
+                  estimated_duration_s:
+                    type: number
+                    description: Straight-line distance at an assumed 30 km/h
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /network/components:
+    post:
+      summary: Connected components
+      description: Weakly connected components of the loaded graph.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                top_k:
+                  type: integer
+                  default: 20
+                  minimum: 1
+                  maximum: 1000
+                  description: Number of components to return, largest first
+      responses:
+        '200':
+          description: Component summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  num_nodes:
+                    type: integer
+                  num_components:
+                    type: integer
+                  largest_component_size:
+                    type: integer
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        component_id:
+                          type: integer
+                        size:
+                          type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /network/od-matrix:
+    post:
+      summary: Origin-destination matrix
+      description: >-
+        Travel time between every origin and destination pair. Unreachable pairs
+        are omitted. Points snap to the nearest graph node.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [origins, destinations]
+              properties:
+                origins:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Point'
+                destinations:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Point'
+                profile:
+                  $ref: '#/components/schemas/Profile'
+      responses:
+        '200':
+          description: Matrix entries, ordered by origin then destination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        origin_index:
+                          type: integer
+                          description: Index into the request `origins` array
+                        destination_index:
+                          type: integer
+                          description: Index into the request `destinations` array
+                        origin_node:
+                          type: integer
+                        destination_node:
+                          type: integer
+                        duration_s:
+                          type: number
+        '400':
+          description: Empty or oversized input (max 100 points per list, 2500 pairs)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /network/closest-facility:
+    post:
+      summary: Closest facility
+      description: >-
+        Cheapest facility for each demand point. Demand points with no reachable
+        facility are omitted and counted in `unreachable`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [demand_points, facilities]
+              properties:
+                demand_points:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Point'
+                facilities:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Point'
+                profile:
+                  $ref: '#/components/schemas/Profile'
+      responses:
+        '200':
+          description: Facility assignments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assignments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        demand_index:
+                          type: integer
+                          description: Index into the request `demand_points` array
+                        facility_index:
+                          type: integer
+                          description: Index into the request `facilities` array
+                        demand_node:
+                          type: integer
+                        facility_node:
+                          type: integer
+                        duration_s:
+                          type: number
+                  unreachable:
+                    type: integer
+        '400':
+          description: Empty or oversized input (max 100 points per list, 2500 pairs)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /network/betweenness:
+    post:
+      summary: Betweenness centrality
+      description: >-
+        Approximate betweenness centrality from an evenly spaced sample of source
+        nodes. Scores are scaled back up to the full node count when sampling.
       requestBody:
         required: true
         content:
@@ -126,78 +402,205 @@ paths:
             schema:
               type: object
               properties:
-                depot:
-                  type: string
-                  description: "Depot coordinates as lon,lat"
-                stops:
-                  type: array
-                  items:
-                    type: string
-                    description: "Stop coordinates as lon,lat"
+                sample_size:
+                  type: integer
+                  default: 64
+                  minimum: 1
+                  maximum: 1000
+                  description: Source nodes to sample, capped at the graph size
+                top_k:
+                  type: integer
+                  default: 20
+                  minimum: 1
+                  maximum: 1000
+                  description: Number of nodes to return, highest score first
+                profile:
+                  $ref: '#/components/schemas/Profile'
       responses:
         '200':
-          description: Optimized route order
+          description: Scored nodes
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  order:
+                  sampled_sources:
+                    type: integer
+                  nodes:
                     type: array
                     items:
-                      type: integer
-                  total_distance:
-                    type: number
-                  total_duration:
-                    type: number
+                      type: object
+                      properties:
+                        node_id:
+                          type: integer
+                        lat:
+                          type: number
+                          format: double
+                        lon:
+                          type: number
+                          format: double
+                        score:
+                          type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /health:
     get:
       summary: Health check
+      security: []
       responses:
         '200':
-          description: Service is healthy
+          description: Service is running
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: A graph is loaded
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: No graph loaded
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Enforced only when the server is started with ITINERA_JWT_SECRET set,
+        otherwise every route is open.
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Missing or invalid bearer token. The body is empty.
+
   schemas:
+    Profile:
+      type: string
+      enum: [car, bicycle, pedestrian, truck]
+      default: car
+
+    Point:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+
+    LatLonPair:
+      type: array
+      description: "[lat, lon]"
+      minItems: 2
+      maxItems: 2
+      items:
+        type: number
+        format: double
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
     RouteResponse:
       type: object
       properties:
-        distance:
+        distance_m:
           type: number
           description: Total distance in meters
-        duration:
+        duration_s:
           type: number
-          description: Total duration in seconds
+          description: Total travel time in seconds
         geometry:
-          type: object
-          description: GeoJSON LineString
+          type: array
+          items:
+            $ref: '#/components/schemas/LatLonPair'
         steps:
           type: array
+          description: Empty for the `ch` algorithm
           items:
             $ref: '#/components/schemas/RouteStep'
 
     RouteStep:
       type: object
       properties:
-        instruction:
-          type: string
-        distance:
+        distance_m:
           type: number
-        duration:
+        duration_s:
           type: number
         name:
+          type: [string, 'null']
+          description: Street name, if the source data has one
+        maneuver:
           type: string
+          description: "Maneuver name, e.g. Depart, TurnRight, Arrive"
 
-    NearestResult:
+    NearestResponse:
       type: object
       properties:
-        lon:
-          type: number
-          format: double
+        node_id:
+          type: integer
         lat:
           type: number
           format: double
-        distance:
+        lon:
           type: number
-          description: Distance to nearest point in meters
+          format: double
+        distance_m:
+          type: number
+          description: Distance from the query point in meters

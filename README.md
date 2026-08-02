@@ -6,7 +6,7 @@ Zero C dependencies. WASM-capable. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-62_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-74_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
@@ -58,7 +58,7 @@ itinera/
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
 │   ├── itinera-match/    # HMM map matching of GPS traces to the graph
-│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone)
+│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, network analysis)
 │   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
 └── docs/                 # GitHub Pages documentation
 ```
@@ -104,13 +104,30 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 | `GET /nearest?lat=...&lon=...` | Find nearest graph node |
 | `GET /isochrone?lat=...&lon=...&max_seconds=...` | Reachability polygon |
 | `POST /delivery/optimize` | Vehicle routing for a set of stops |
+| `POST /network/components` | Connected components of the graph |
+| `POST /network/od-matrix` | Origin-destination travel time matrix |
+| `POST /network/closest-facility` | Nearest facility for each demand point |
+| `POST /network/betweenness` | Approximate betweenness centrality |
 | `GET /health` | Health check |
 | `GET /healthz`, `GET /readyz` | Liveness and readiness probes |
 | `GET /metrics` | Prometheus metrics |
 
 **Query parameters:**
 - `profile` — `car` (default), `bicycle`, `pedestrian`, `truck`
-- `algorithm` — `dijkstra` (default), `astar`, `ch`
+- `algorithm` — `astar` (default), `dijkstra`, `ch`
+
+**Network analysis:** points are given as `{"lat": ..., "lon": ...}` and snap to the nearest
+graph node. `/network/od-matrix` takes `origins` and `destinations`, `/network/closest-facility`
+takes `demand_points` and `facilities`, both capped at 100 points per list and 2500 pairs per
+request. `/network/betweenness` takes `sample_size` (1–1000, default 64). `/network/components`
+and `/network/betweenness` return the `top_k` largest results (default 20). Costs are travel
+times in seconds under the requested `profile`.
+
+```bash
+curl -X POST http://localhost:5000/network/od-matrix \
+  -H 'Content-Type: application/json' \
+  -d '{"origins":[{"lat":48.8566,"lon":2.3522}],"destinations":[{"lat":48.8738,"lon":2.2950}]}'
+```
 
 **Response (route):**
 ```json
