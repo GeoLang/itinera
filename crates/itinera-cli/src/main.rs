@@ -251,10 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let geojson = serde_json::json!({
                 "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [result.boundary.iter().map(|c| [c.lon, c.lat]).collect::<Vec<_>>()]
-                },
+                "geometry": boundary_geometry(&result.boundary),
                 "properties": {
                     "max_seconds": max_seconds,
                     "reachable_nodes": result.nodes.len()
@@ -265,6 +262,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// A linear ring must be closed and hold at least four positions, so a boundary too
+/// short to form one becomes a point or a line instead.
+fn boundary_geometry(boundary: &[itinera_graph::Coord]) -> serde_json::Value {
+    let positions: Vec<[f64; 2]> = boundary.iter().map(|c| [c.lon, c.lat]).collect();
+
+    match positions.len() {
+        0 => serde_json::Value::Null,
+        1 => serde_json::json!({ "type": "Point", "coordinates": positions[0] }),
+        2 => serde_json::json!({ "type": "LineString", "coordinates": positions }),
+        _ => {
+            let mut ring = positions;
+            ring.push(ring[0]);
+            serde_json::json!({ "type": "Polygon", "coordinates": [ring] })
+        }
+    }
 }
 
 fn parse_coord(s: &str) -> Result<itinera_graph::Coord, String> {
@@ -286,4 +300,41 @@ fn parse_coord(s: &str) -> Result<itinera_graph::Coord, String> {
 fn resolve_profile(name: &str) -> Result<itinera_graph::SpeedProfile, String> {
     itinera_graph::SpeedProfile::from_name(name)
         .ok_or_else(|| format!("unknown profile '{name}'; valid: car, bicycle, pedestrian, truck"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use itinera_graph::Coord;
+
+    #[test]
+    fn test_boundary_geometry_closes_the_polygon_ring() {
+        let boundary = [
+            Coord::new(0.0, 0.0),
+            Coord::new(0.0, 1.0),
+            Coord::new(1.0, 1.0),
+        ];
+        let geometry = boundary_geometry(&boundary);
+
+        assert_eq!(geometry["type"], "Polygon");
+        let ring = geometry["coordinates"][0].as_array().unwrap();
+        assert_eq!(ring.len(), 4);
+        assert_eq!(ring.first(), ring.last());
+    }
+
+    #[test]
+    fn test_boundary_geometry_below_a_ring() {
+        assert_eq!(boundary_geometry(&[]), serde_json::Value::Null);
+
+        let point = boundary_geometry(&[Coord::new(1.0, 2.0)]);
+        assert_eq!(point["type"], "Point");
+        assert_eq!(point["coordinates"], serde_json::json!([2.0, 1.0]));
+
+        let line = boundary_geometry(&[Coord::new(1.0, 2.0), Coord::new(3.0, 4.0)]);
+        assert_eq!(line["type"], "LineString");
+        assert_eq!(
+            line["coordinates"],
+            serde_json::json!([[2.0, 1.0], [4.0, 3.0]])
+        );
+    }
 }

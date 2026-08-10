@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
   parameter, both defaulting to 2.0. Lower values hug the network more closely,
   infinity reproduces the old convex boundary.
 
+### Fixed
+
+- `itinera isochrone` emits a valid GeoJSON geometry. It fed the boundary ring
+  straight into a `Polygon`, but the ring is open and a GeoJSON linear ring has to
+  be closed and hold at least four positions, so every isochrone the CLI printed
+  was rejected by strict readers. The ring is now closed, and a boundary of one or
+  two points comes out as a `Point` or `LineString` rather than a broken polygon.
+
 ## [Unreleased] - 2026-08-02
 
 ### Added
