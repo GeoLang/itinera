@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use itinera_core::{Route, astar, dijkstra, isochrone, network_analysis, vrp};
+use itinera_core::{DEFAULT_CONCAVITY, Route, astar, dijkstra, isochrone, network_analysis, vrp};
 use itinera_graph::{Coord, Graph, NodeId, SpeedProfile};
 
 use crate::state::AppState;
@@ -70,6 +70,8 @@ struct IsochroneQuery {
     max_seconds: f64,
     /// Profile: "car", "bicycle", "pedestrian", "truck" (default: "car")
     profile: Option<String>,
+    /// Boundary concavity: lower hugs the network more closely (default: 2.0)
+    concavity: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -239,13 +241,25 @@ async fn isochrone_handler(
     ::metrics::counter!("itinera_isochrone_requests").increment(1);
     let coord = Coord::new(params.lat, params.lon);
     let profile = resolve_profile(params.profile.as_deref(), &state.profile)?;
+    let concavity = params.concavity.unwrap_or(DEFAULT_CONCAVITY);
+    if concavity < 0.0 || concavity.is_nan() {
+        return Err(bad_request(format!(
+            "concavity must be zero or greater, got {concavity}"
+        )));
+    }
 
     let source = state
         .graph
         .nearest_node(coord)
         .ok_or_else(|| bad_request("graph is empty".to_string()))?;
 
-    let result = isochrone(&state.graph, source, params.max_seconds, &profile);
+    let result = isochrone(
+        &state.graph,
+        source,
+        params.max_seconds,
+        &profile,
+        concavity,
+    );
 
     Ok(Json(IsochroneResponse {
         reachable_nodes: result.nodes.len(),

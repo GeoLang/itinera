@@ -1,6 +1,6 @@
 //! Integration tests for the Itinera routing engine.
 
-use itinera_core::{ContractionHierarchy, astar, dijkstra, isochrone};
+use itinera_core::{ContractionHierarchy, DEFAULT_CONCAVITY, astar, dijkstra, isochrone};
 use itinera_graph::{Coord, Edge, Graph, Node, NodeId, SpeedProfile};
 
 /// Build a grid graph for testing:
@@ -156,7 +156,7 @@ fn test_isochrone_reachability() {
     let g = grid_3x3();
     let profile = SpeedProfile::car();
     // 1000m at 50 km/h = 72s per edge. Budget of 150s should reach 2-hop neighbors.
-    let result = isochrone(&g, NodeId(4), 150.0, &profile);
+    let result = isochrone(&g, NodeId(4), 150.0, &profile, DEFAULT_CONCAVITY);
 
     assert!(result.nodes.len() >= 5);
     assert!(result.boundary.len() >= 3);
@@ -166,7 +166,7 @@ fn test_isochrone_reachability() {
 fn test_isochrone_zero_budget() {
     let g = grid_3x3();
     let profile = SpeedProfile::car();
-    let result = isochrone(&g, NodeId(0), 0.0, &profile);
+    let result = isochrone(&g, NodeId(0), 0.0, &profile, DEFAULT_CONCAVITY);
     assert_eq!(result.nodes.len(), 1);
     assert_eq!(result.nodes[0].0, NodeId(0));
 }

@@ -233,7 +233,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source = g.nearest_node(coord).ok_or("no node near center")?;
 
             let start = Instant::now();
-            let result = itinera_core::isochrone(&g, source, max_seconds, &profile);
+            let result = itinera_core::isochrone(
+                &g,
+                source,
+                max_seconds,
+                &profile,
+                itinera_core::DEFAULT_CONCAVITY,
+            );
             let elapsed = start.elapsed();
 
             println!(
