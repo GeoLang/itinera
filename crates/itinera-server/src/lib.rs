@@ -9,6 +9,7 @@
 pub mod api_keys;
 pub mod auth;
 mod handlers;
+mod hex;
 pub mod metrics;
 mod state;
 

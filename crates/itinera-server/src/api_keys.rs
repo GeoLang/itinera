@@ -2,11 +2,13 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+
+use crate::hex;
 
 /// API key with metadata and rate limit configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,7 +221,7 @@ impl ApiKeyStore {
     /// Create a new API key.
     pub async fn create_key(&self, name: String, owner: String) -> (String, ApiKey) {
         let raw_key = Uuid::new_v4().to_string();
-        let key_hash = format!("{:x}", sha2::Sha256::digest(raw_key.as_bytes()));
+        let key_hash = key_hash(&raw_key);
         let key = ApiKey {
             id: Uuid::new_v4(),
             key_hash,
@@ -249,5 +251,26 @@ impl ApiKeyStore {
     /// List all keys.
     pub async fn list(&self) -> Vec<ApiKey> {
         self.keys.read().await.clone()
+    }
+}
+
+/// SHA-256 of a raw key, lowercase hex. A stored hash is only ever compared
+/// against this, so the string has to stay byte for byte what it always was.
+fn key_hash(raw_key: &str) -> String {
+    hex::encode_lowercase(&Sha256::digest(raw_key.as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // input picked so its digest holds a byte below 0x10, which catches a
+    // dropped zero pad
+    #[test]
+    fn test_key_hash_golden() {
+        assert_eq!(
+            key_hash("itinera api key golden input 1"),
+            "d630add37ceff7e9ce946924ed5ebe380f1d0d080e8529230a1ed522b3cffe74"
+        );
     }
 }
