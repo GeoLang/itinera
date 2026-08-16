@@ -2,11 +2,11 @@
 
 **Pure-Rust routing engine** — a modern alternative to OSRM, Valhalla, and GraphHopper.
 
-Zero C dependencies. WASM-capable. Blazing fast.
+Zero C dependencies. Single binary. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-74_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-84_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
@@ -20,7 +20,7 @@ Zero C dependencies. WASM-capable. Blazing fast.
 | Language | C++ | C++ | Java | **Rust** |
 | Memory safety | ❌ | ❌ | ✅ (GC) | ✅ (compile-time) |
 | C dependencies | Many | Many | JVM | **Zero** |
-| WASM support | ❌ | ❌ | ❌ | ✅ |
+| WASM support | ❌ | ❌ | ❌ | ❌ |
 | Single binary | ❌ | ❌ | ❌ | ✅ |
 | License | BSD-2 | MIT | Apache-2 | AGPL-3.0 |
 | Contraction Hierarchies | ✅ | ❌ | ✅ | ✅ |

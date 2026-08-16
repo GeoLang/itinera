@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- README drops the WASM-capable claim (no wasm crate) and the 74-test badge
+  (84). Docs match: truck is a speed table, not weight tags.
 - sha2 on 0.11. API key digests are hex encoded by a local module instead of
   `{:x}`, which digest 0.11 no longer implements, and a golden test pins the
   string so a stored hash still matches.
