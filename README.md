@@ -2,7 +2,7 @@
 
 **Pure-Rust routing engine** — a modern alternative to OSRM, Valhalla, and GraphHopper.
 
-Zero C dependencies. Single binary. Blazing fast.
+Routing core with no C dependencies. Single binary. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
@@ -19,7 +19,7 @@ Zero C dependencies. Single binary. Blazing fast.
 |--|------|----------|-------------|-------------|
 | Language | C++ | C++ | Java | **Rust** |
 | Memory safety | ❌ | ❌ | ✅ (GC) | ✅ (compile-time) |
-| C dependencies | Many | Many | JVM | **Zero** |
+| C dependencies | Many | Many | JVM | **None in the routing core** (the server's TLS/JWT stack pulls `ring` and `aws-lc-sys`) |
 | WASM support | ❌ | ❌ | ❌ | ❌ |
 | Single binary | ❌ | ❌ | ❌ | ✅ |
 | License | BSD-2 | MIT | Apache-2 | AGPL-3.0 |
@@ -44,7 +44,7 @@ No garbage collector pauses. No segfaults. No dependency hell.
 - **CSR Graph** — Cache-friendly Compressed Sparse Row with reverse index
 - **R-tree spatial index** — Fast nearest-node queries
 - **Binary serialization** — Compact bincode format for instant graph loading
-- **Turn restrictions** — No-turn / only-turn from OSM relations
+- **Turn restrictions** — No-turn / only-turn parsed from OSM relations and stored; not yet enforced by the routing algorithms
 - **Network analysis** — Connected components, OD matrix, closest facility, betweenness centrality
 
 ---
@@ -57,7 +57,8 @@ itinera/
 │   ├── itinera-graph/    # CSR graph, nodes, edges, profiles, R-tree
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
-│   ├── itinera-match/    # HMM map matching of GPS traces to the graph
+│   ├── itinera-match/    # HMM map matching of GPS traces to a standalone road network
+│   │                     # (library-only, not the routing graph, no HTTP endpoint)
 │   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, network analysis)
 │   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
 └── docs/                 # GitHub Pages documentation
@@ -103,7 +104,7 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 | `GET /route?from=lat,lon&to=lat,lon` | Compute shortest route |
 | `GET /nearest?lat=...&lon=...` | Find nearest graph node |
 | `GET /isochrone?lat=...&lon=...&max_seconds=...` | Reachability polygon |
-| `POST /delivery/optimize` | Vehicle routing for a set of stops |
+| `POST /delivery/optimize` | Stop ordering over great-circle distances at a fixed 30 km/h, not road distances |
 | `POST /network/components` | Connected components of the graph |
 | `POST /network/od-matrix` | Origin-destination travel time matrix |
 | `POST /network/closest-facility` | Nearest facility for each demand point |
