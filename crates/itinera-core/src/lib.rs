@@ -18,4 +18,4 @@ pub use dijkstra::dijkstra;
 pub use error::RoutingError;
 pub use isochrone::{DEFAULT_CONCAVITY, isochrone};
 pub use maneuver::{annotate_maneuvers, detect_maneuver};
-pub use route::{Route, RouteStep, StepManeuver};
+pub use route::{Route, RouteStep, StepManeuver, route_from_path};

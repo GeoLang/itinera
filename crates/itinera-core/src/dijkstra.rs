@@ -1,17 +1,17 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use itinera_graph::{Graph, NodeId, SpeedProfile};
 
 use crate::error::RoutingError;
-use crate::maneuver::annotate_maneuvers;
-use crate::route::{Route, RouteStep, StepManeuver};
+use crate::route::{Route, route_from_path};
 
-/// State in the priority queue.
+/// State in the priority queue. `incoming_way` 0 means no previous way.
 #[derive(Debug, Clone)]
 struct State {
     cost: f64,
     node: NodeId,
+    incoming_way: i64,
 }
 
 impl PartialEq for State {
@@ -63,113 +63,87 @@ pub fn dijkstra(
         return Err(RoutingError::NodeNotFound(target.0));
     }
 
-    let mut dist = vec![f64::INFINITY; n];
-    let mut prev: Vec<Option<u32>> = vec![None; n];
-    let mut visited = vec![false; n];
+    let mut dist: HashMap<(u32, i64), f64> = HashMap::new();
+    let mut prev: HashMap<(u32, i64), (u32, i64)> = HashMap::new();
+    let mut settled: HashSet<(u32, i64)> = HashSet::new();
 
-    dist[src_idx] = 0.0;
+    dist.insert((source.0, 0), 0.0);
 
     let mut heap = BinaryHeap::new();
     heap.push(State {
         cost: 0.0,
         node: source,
+        incoming_way: 0,
     });
 
-    while let Some(State { cost, node }) = heap.pop() {
-        let node_idx = node.0 as usize;
+    let mut arrival: Option<(i64, f64)> = None;
+
+    while let Some(State {
+        cost,
+        node,
+        incoming_way,
+    }) = heap.pop()
+    {
+        let key = (node.0, incoming_way);
+        if !settled.insert(key) {
+            continue;
+        }
+
+        if cost > dist.get(&key).copied().unwrap_or(f64::INFINITY) {
+            continue;
+        }
 
         if node == target {
+            arrival = Some((incoming_way, cost));
             break;
         }
 
-        if visited[node_idx] {
-            continue;
-        }
-        visited[node_idx] = true;
-
-        if cost > dist[node_idx] {
-            continue;
-        }
-
         for edge in graph.outgoing_edges(node) {
+            if graph.turn_is_banned(node, incoming_way, edge.way_id) {
+                continue;
+            }
             let weight = graph.edge_weight(edge, profile);
             if weight == f64::INFINITY {
                 continue;
             }
 
-            let next = edge.to;
-            let next_idx = next.0 as usize;
+            let next_key = (edge.to.0, edge.way_id);
             let new_cost = cost + weight;
 
-            if new_cost < dist[next_idx] {
-                dist[next_idx] = new_cost;
-                prev[next_idx] = Some(node.0);
+            if new_cost < dist.get(&next_key).copied().unwrap_or(f64::INFINITY) {
+                dist.insert(next_key, new_cost);
+                prev.insert(next_key, key);
                 heap.push(State {
                     cost: new_cost,
-                    node: next,
+                    node: edge.to,
+                    incoming_way: edge.way_id,
                 });
             }
         }
     }
 
-    if dist[tgt_idx] == f64::INFINITY {
+    let Some((arrival_way, duration_s)) = arrival else {
         return Err(RoutingError::NoRoute {
             from: format!("{source:?}"),
             to: format!("{target:?}"),
         });
-    }
+    };
 
-    // Reconstruct path
     let mut path = Vec::new();
-    let mut current = tgt_idx as u32;
-    while current != source.0 {
-        path.push(current);
-        current = prev[current as usize].ok_or(RoutingError::NoRoute {
+    let mut current = (target.0, arrival_way);
+    loop {
+        path.push(current.0);
+        if current.0 == source.0 {
+            break;
+        }
+        current = prev.get(&current).copied().ok_or(RoutingError::NoRoute {
             from: format!("{source:?}"),
             to: format!("{target:?}"),
         })?;
     }
-    path.push(source.0);
     path.reverse();
 
-    // Build route
-    let geometry: Vec<_> = path
-        .iter()
-        .filter_map(|&nid| graph.node_coord(NodeId(nid)))
-        .collect();
-
-    let maneuvers = annotate_maneuvers(graph, &path);
-    let mut steps = Vec::new();
-    let mut total_distance = 0.0;
-
-    for (idx, window) in path.windows(2).enumerate() {
-        let from = NodeId(window[0]);
-        let to = NodeId(window[1]);
-
-        if let Some(edge) = graph.outgoing_edges(from).iter().find(|e| e.to == to) {
-            total_distance += edge.distance_m;
-            let maneuver = maneuvers[idx].clone();
-            steps.push(RouteStep {
-                distance_m: edge.distance_m,
-                duration_s: graph.edge_weight(edge, profile),
-                name: edge.name.clone(),
-                maneuver,
-            });
-        }
-    }
-
-    // Override last step maneuver to Arrive
-    if let Some(last) = steps.last_mut() {
-        last.maneuver = StepManeuver::Arrive;
-    }
-
-    Ok(Route {
-        distance_m: total_distance,
-        duration_s: dist[tgt_idx],
-        node_ids: path,
-        geometry,
-        steps,
-    })
+    Ok(route_from_path(graph, &path, profile, duration_s))
 }
 
 #[cfg(test)]
@@ -287,5 +261,119 @@ mod tests {
         let route = dijkstra(&g, NodeId(0), NodeId(0), &profile).unwrap();
         assert_eq!(route.distance_m, 0.0);
         assert_eq!(route.node_ids, vec![0]);
+    }
+
+    fn banned_left_graph() -> Graph {
+        let nodes = vec![
+            Node {
+                id: NodeId(0),
+                coord: Coord::new(0.0, 0.0),
+                osm_id: 1,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(1),
+                coord: Coord::new(0.0, 1.0),
+                osm_id: 2,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(2),
+                coord: Coord::new(0.0, 2.0),
+                osm_id: 3,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(3),
+                coord: Coord::new(1.0, 1.0),
+                osm_id: 4,
+                ch_level: 0,
+            },
+        ];
+        let edges = vec![
+            Edge {
+                from: NodeId(0),
+                to: NodeId(1),
+                distance_m: 100.0,
+                duration_s: 10.0,
+                way_id: 1,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(1),
+                to: NodeId(2),
+                distance_m: 100.0,
+                duration_s: 10.0,
+                way_id: 2,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(0),
+                to: NodeId(3),
+                distance_m: 800.0,
+                duration_s: 80.0,
+                way_id: 3,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(3),
+                to: NodeId(2),
+                distance_m: 800.0,
+                duration_s: 80.0,
+                way_id: 4,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+        ];
+        let mut g = Graph::build(nodes, edges);
+        g.restrictions.push(itinera_graph::TurnRestriction {
+            via_node: NodeId(1),
+            from_way: 1,
+            to_way: 2,
+            restriction_type: itinera_graph::turn::RestrictionType::No,
+        });
+        g
+    }
+
+    #[test]
+    fn test_dijkstra_avoids_banned_left_turn() {
+        let g = banned_left_graph();
+        let profile = SpeedProfile::car();
+        let route = dijkstra(&g, NodeId(0), NodeId(2), &profile).unwrap();
+        assert_eq!(route.node_ids, vec![0, 3, 2]);
+        assert!(
+            !route
+                .node_ids
+                .windows(2)
+                .any(|hop| hop == [1, 2] || hop == [0, 1])
+        );
+        assert!((route.distance_m - 1600.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_dijkstra_only_restriction_bans_other_turns() {
+        let mut g = banned_left_graph();
+        g.restrictions.clear();
+        g.restrictions.push(itinera_graph::TurnRestriction {
+            via_node: NodeId(1),
+            from_way: 1,
+            to_way: 99,
+            restriction_type: itinera_graph::turn::RestrictionType::Only,
+        });
+        let profile = SpeedProfile::car();
+        let route = dijkstra(&g, NodeId(0), NodeId(2), &profile).unwrap();
+        assert_eq!(route.node_ids, vec![0, 3, 2]);
+        assert!(!route.node_ids.windows(2).any(|hop| hop == [1, 2]));
     }
 }

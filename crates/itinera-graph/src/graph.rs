@@ -1,6 +1,12 @@
+use std::sync::OnceLock;
+
+use rstar::{RTree, primitives::GeomWithData};
 use serde::{Deserialize, Serialize};
 
+use crate::turn::RestrictionType;
 use crate::{Coord, Edge, EdgeId, Node, NodeId, SpeedProfile, TurnRestriction};
+
+type IndexedPoint = GeomWithData<[f64; 2], u32>;
 
 /// Compressed Sparse Row (CSR) graph for fast adjacency traversal.
 ///
@@ -10,7 +16,7 @@ use crate::{Coord, Edge, EdgeId, Node, NodeId, SpeedProfile, TurnRestriction};
 ///
 /// Also maintains a reverse CSR for efficient incoming-edge traversal
 /// (used by bidirectional CH queries).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
@@ -24,6 +30,23 @@ pub struct Graph {
     pub rev_offsets: Vec<u32>,
     /// Turn restrictions indexed by via_node.
     pub restrictions: Vec<TurnRestriction>,
+    /// Spatial index for `nearest_node`. Built once; skipped in serde.
+    #[serde(skip)]
+    rtree: OnceLock<RTree<IndexedPoint>>,
+}
+
+impl Clone for Graph {
+    fn clone(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            edges: self.edges.clone(),
+            offsets: self.offsets.clone(),
+            rev_edge_indices: self.rev_edge_indices.clone(),
+            rev_offsets: self.rev_offsets.clone(),
+            restrictions: self.restrictions.clone(),
+            rtree: OnceLock::new(),
+        }
+    }
 }
 
 impl Graph {
@@ -75,14 +98,17 @@ impl Graph {
             }
         }
 
-        Self {
+        let graph = Self {
             nodes,
             edges,
             offsets,
             rev_edge_indices,
             rev_offsets,
             restrictions: Vec::new(),
-        }
+            rtree: OnceLock::new(),
+        };
+        let _ = graph.spatial_index();
+        graph
     }
 
     /// Rebuild the reverse CSR index. Call after adding shortcuts.
@@ -162,19 +188,20 @@ impl Graph {
     /// Find nearest node to a coordinate using R-tree spatial index.
     #[must_use]
     pub fn nearest_node(&self, coord: Coord) -> Option<NodeId> {
-        use rstar::{RTree, primitives::GeomWithData};
-
-        type IndexedPoint = GeomWithData<[f64; 2], u32>;
-
-        let tree: RTree<IndexedPoint> = RTree::bulk_load(
-            self.nodes
-                .iter()
-                .map(|n| GeomWithData::new([n.coord.lat, n.coord.lon], n.id.0))
-                .collect(),
-        );
-
-        tree.nearest_neighbor(&[coord.lat, coord.lon])
+        self.spatial_index()
+            .nearest_neighbor(&[coord.lat, coord.lon])
             .map(|p| NodeId(p.data))
+    }
+
+    fn spatial_index(&self) -> &RTree<IndexedPoint> {
+        self.rtree.get_or_init(|| {
+            RTree::bulk_load(
+                self.nodes
+                    .iter()
+                    .map(|n| GeomWithData::new([n.coord.lat, n.coord.lon], n.id.0))
+                    .collect(),
+            )
+        })
     }
 
     /// Check if a turn from `from_way` to `to_way` at `via_node` is restricted.
@@ -184,8 +211,38 @@ impl Graph {
             r.via_node == via_node
                 && r.from_way == from_way
                 && r.to_way == to_way
-                && r.restriction_type == crate::turn::RestrictionType::No
+                && r.restriction_type == RestrictionType::No
         })
+    }
+
+    /// Whether the turn `from_way` → `to_way` at `via` is forbidden.
+    ///
+    /// Incoming way `0` means no previous way (start of search): never banned.
+    /// `Only` restrictions at `(via, from_way)` ban every `to_way` except the named one.
+    #[must_use]
+    pub fn turn_is_banned(&self, via: NodeId, from_way: i64, to_way: i64) -> bool {
+        if from_way == 0 || to_way == 0 {
+            return false;
+        }
+
+        let mut has_only = false;
+        let mut only_allows = false;
+        for r in &self.restrictions {
+            if r.via_node != via || r.from_way != from_way {
+                continue;
+            }
+            match r.restriction_type {
+                RestrictionType::No if r.to_way == to_way => return true,
+                RestrictionType::Only => {
+                    has_only = true;
+                    if r.to_way == to_way {
+                        only_allows = true;
+                    }
+                }
+                RestrictionType::No => {}
+            }
+        }
+        has_only && !only_allows
     }
 
     /// Calculate edge weight (travel time in seconds) given a speed profile.
@@ -321,6 +378,59 @@ mod tests {
         // Closest to Paris center
         let nearest = g.nearest_node(Coord::new(48.857, 2.352)).unwrap();
         assert_eq!(nearest, NodeId(0));
+    }
+
+    #[test]
+    fn test_nearest_node_builds_rtree_once() {
+        let g = sample_graph();
+        assert!(g.rtree.get().is_some());
+        let first = g.nearest_node(Coord::new(48.857, 2.352)).unwrap();
+        let second = g.nearest_node(Coord::new(48.861, 2.338)).unwrap();
+        assert_eq!(first, NodeId(0));
+        assert_eq!(second, NodeId(1));
+        assert!(g.rtree.get().is_some());
+
+        let restored = Graph::from_bytes(&g.to_bytes()).unwrap();
+        assert!(restored.rtree.get().is_none());
+        assert_eq!(
+            restored.nearest_node(Coord::new(48.857, 2.352)).unwrap(),
+            NodeId(0)
+        );
+        assert!(restored.rtree.get().is_some());
+
+        let cloned = g.clone();
+        assert!(cloned.rtree.get().is_none());
+        assert_eq!(
+            cloned.nearest_node(Coord::new(48.857, 2.352)).unwrap(),
+            NodeId(0)
+        );
+        assert!(cloned.rtree.get().is_some());
+    }
+
+    #[test]
+    fn test_turn_is_banned_no_and_only() {
+        let mut g = sample_graph();
+        g.restrictions.push(crate::TurnRestriction {
+            via_node: NodeId(1),
+            from_way: 100,
+            to_way: 101,
+            restriction_type: RestrictionType::No,
+        });
+        g.restrictions.push(crate::TurnRestriction {
+            via_node: NodeId(0),
+            from_way: 200,
+            to_way: 201,
+            restriction_type: RestrictionType::Only,
+        });
+
+        assert!(g.turn_is_banned(NodeId(1), 100, 101));
+        assert!(!g.turn_is_banned(NodeId(1), 100, 102));
+        assert!(!g.turn_is_banned(NodeId(1), 0, 101));
+        assert!(!g.turn_is_banned(NodeId(1), 100, 0));
+
+        assert!(!g.turn_is_banned(NodeId(0), 200, 201));
+        assert!(g.turn_is_banned(NodeId(0), 200, 202));
+        assert!(!g.turn_is_banned(NodeId(0), 0, 202));
     }
 
     #[test]

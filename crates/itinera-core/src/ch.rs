@@ -1,7 +1,15 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use itinera_graph::{Edge, Graph, NodeId, SpeedProfile};
+
+#[derive(Clone)]
+struct Neighbour {
+    node: NodeId,
+    weight: f64,
+    first_way: i64,
+    last_way: i64,
+}
 
 /// Contraction Hierarchies for fast shortest-path queries.
 ///
@@ -16,12 +24,17 @@ pub struct ContractionHierarchy {
     pub node_order: Vec<NodeId>,
     /// For each edge in the augmented graph, the middle node if it's a shortcut.
     pub shortcut_middle: Vec<Option<NodeId>>,
+    /// First original way on this edge (or shortcut unpacking).
+    shortcut_first_way: Vec<i64>,
+    /// Last original way on this edge (or shortcut unpacking).
+    shortcut_last_way: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]
 struct CHState {
     cost: f64,
     node: NodeId,
+    way: i64,
 }
 
 impl PartialEq for CHState {
@@ -59,16 +72,27 @@ impl ContractionHierarchy {
         let mut contracted = vec![false; n];
         let mut node_order = Vec::with_capacity(n);
         let mut shortcut_middle: Vec<Option<NodeId>> = vec![None; edges.len()];
+        let mut first_ways: Vec<i64> = edges.iter().map(|e| e.way_id).collect();
+        let mut last_ways: Vec<i64> = first_ways.clone();
 
-        // Build adjacency lists for contraction
-        let mut out_adj: Vec<Vec<(NodeId, f64, usize)>> = vec![Vec::new(); n];
-        let mut in_adj: Vec<Vec<(NodeId, f64, usize)>> = vec![Vec::new(); n];
+        let mut out_adj: Vec<Vec<Neighbour>> = vec![Vec::new(); n];
+        let mut in_adj: Vec<Vec<Neighbour>> = vec![Vec::new(); n];
 
-        for (idx, edge) in edges.iter().enumerate() {
+        for edge in edges.iter() {
             let weight = graph.edge_weight(edge, profile);
             if weight < f64::INFINITY {
-                out_adj[edge.from.0 as usize].push((edge.to, weight, idx));
-                in_adj[edge.to.0 as usize].push((edge.from, weight, idx));
+                out_adj[edge.from.0 as usize].push(Neighbour {
+                    node: edge.to,
+                    weight,
+                    first_way: edge.way_id,
+                    last_way: edge.way_id,
+                });
+                in_adj[edge.to.0 as usize].push(Neighbour {
+                    node: edge.from,
+                    weight,
+                    first_way: edge.way_id,
+                    last_way: edge.way_id,
+                });
             }
         }
 
@@ -81,14 +105,15 @@ impl ContractionHierarchy {
                 if contracted[node_idx] {
                     continue;
                 }
-                let shortcuts = count_shortcuts_needed(node_idx, &out_adj, &in_adj, &contracted);
+                let shortcuts =
+                    count_shortcuts_needed(node_idx, &out_adj, &in_adj, &contracted, graph);
                 let in_degree = in_adj[node_idx]
                     .iter()
-                    .filter(|(from, _, _)| !contracted[from.0 as usize])
+                    .filter(|nb| !contracted[nb.node.0 as usize])
                     .count() as i64;
                 let out_degree = out_adj[node_idx]
                     .iter()
-                    .filter(|(to, _, _)| !contracted[to.0 as usize])
+                    .filter(|nb| !contracted[nb.node.0 as usize])
                     .count() as i64;
                 let priority = shortcuts - (in_degree + out_degree);
 
@@ -106,28 +131,38 @@ impl ContractionHierarchy {
 
             let incoming: Vec<_> = in_adj[v]
                 .iter()
-                .filter(|(from, _, _)| !contracted[from.0 as usize])
+                .filter(|nb| !contracted[nb.node.0 as usize])
                 .cloned()
                 .collect();
             let outgoing: Vec<_> = out_adj[v]
                 .iter()
-                .filter(|(to, _, _)| !contracted[to.0 as usize])
+                .filter(|nb| !contracted[nb.node.0 as usize])
                 .cloned()
                 .collect();
 
-            for &(u, w_uv, _) in &incoming {
-                for &(w, w_vw, _) in &outgoing {
-                    if u == w {
+            for uv in &incoming {
+                for vw in &outgoing {
+                    if uv.node == vw.node {
                         continue;
                     }
-                    let shortcut_cost = w_uv + w_vw;
+                    if graph.turn_is_banned(NodeId(v as u32), uv.last_way, vw.first_way) {
+                        continue;
+                    }
+                    let shortcut_cost = uv.weight + vw.weight;
 
-                    if needs_shortcut(u, w, shortcut_cost, v, &out_adj, &contracted) {
-                        let edge_idx = edges.len();
+                    if needs_shortcut(
+                        uv.node,
+                        vw.node,
+                        shortcut_cost,
+                        v,
+                        &out_adj,
+                        &contracted,
+                        graph,
+                    ) {
                         let sc_distance = shortcut_cost * 50.0 / 3.6;
                         edges.push(Edge {
-                            from: u,
-                            to: w,
+                            from: uv.node,
+                            to: vw.node,
                             distance_m: sc_distance,
                             duration_s: shortcut_cost,
                             way_id: -1,
@@ -137,75 +172,65 @@ impl ContractionHierarchy {
                             geometry: Vec::new(),
                         });
                         shortcut_middle.push(Some(NodeId(v as u32)));
-                        out_adj[u.0 as usize].push((w, shortcut_cost, edge_idx));
-                        in_adj[w.0 as usize].push((u, shortcut_cost, edge_idx));
+                        first_ways.push(uv.first_way);
+                        last_ways.push(vw.last_way);
+                        out_adj[uv.node.0 as usize].push(Neighbour {
+                            node: vw.node,
+                            weight: shortcut_cost,
+                            first_way: uv.first_way,
+                            last_way: vw.last_way,
+                        });
+                        in_adj[vw.node.0 as usize].push(Neighbour {
+                            node: uv.node,
+                            weight: shortcut_cost,
+                            first_way: uv.first_way,
+                            last_way: vw.last_way,
+                        });
                     }
                 }
             }
         }
 
-        // To preserve shortcut_middle alignment after Graph::build sorts edges,
-        // sort the parallel arrays together.
-        let mut edge_with_middle: Vec<(Edge, Option<NodeId>)> =
-            edges.into_iter().zip(shortcut_middle).collect();
-        edge_with_middle.sort_by_key(|(e, _)| e.from);
+        // Keep shortcut metadata aligned after Graph::build sorts edges.
+        let mut packed: Vec<(Edge, Option<NodeId>, i64, i64)> = edges
+            .into_iter()
+            .zip(shortcut_middle)
+            .zip(first_ways)
+            .zip(last_ways)
+            .map(|(((e, m), f), l)| (e, m, f, l))
+            .collect();
+        packed.sort_by_key(|(e, _, _, _)| e.from);
 
-        let sorted_edges: Vec<Edge> = edge_with_middle.iter().map(|(e, _)| e.clone()).collect();
-        let sorted_middle: Vec<Option<NodeId>> =
-            edge_with_middle.into_iter().map(|(_, m)| m).collect();
+        let mut sorted_edges = Vec::with_capacity(packed.len());
+        let mut sorted_middle = Vec::with_capacity(packed.len());
+        let mut sorted_first = Vec::with_capacity(packed.len());
+        let mut sorted_last = Vec::with_capacity(packed.len());
+        for (e, m, f, l) in packed {
+            sorted_edges.push(e);
+            sorted_middle.push(m);
+            sorted_first.push(f);
+            sorted_last.push(l);
+        }
 
         nodes.sort_by_key(|node| node.id);
-
-        // Build CSR offsets manually (same logic as Graph::build)
-        let num_nodes = nodes.len();
-        let mut offsets = vec![0u32; num_nodes + 1];
-        for edge in &sorted_edges {
-            let src = edge.from.0 as usize;
-            if src < num_nodes {
-                offsets[src + 1] += 1;
-            }
-        }
-        for i in 1..=num_nodes {
-            offsets[i] += offsets[i - 1];
-        }
-
-        // Build reverse CSR
-        let mut rev_offsets = vec![0u32; num_nodes + 1];
-        for edge in &sorted_edges {
-            let tgt = edge.to.0 as usize;
-            if tgt < num_nodes {
-                rev_offsets[tgt + 1] += 1;
-            }
-        }
-        for i in 1..=num_nodes {
-            rev_offsets[i] += rev_offsets[i - 1];
-        }
-
-        let mut rev_edge_indices = vec![0u32; sorted_edges.len()];
-        let mut rev_pos = rev_offsets.clone();
-        for (idx, edge) in sorted_edges.iter().enumerate() {
-            let tgt = edge.to.0 as usize;
-            if tgt < num_nodes {
-                let pos = rev_pos[tgt] as usize;
-                rev_edge_indices[pos] = idx as u32;
-                rev_pos[tgt] += 1;
-            }
-        }
-
-        let augmented = Graph {
-            nodes,
-            edges: sorted_edges,
-            offsets,
-            rev_edge_indices,
-            rev_offsets,
-            restrictions: Vec::new(),
-        };
+        let mut augmented = Graph::build(nodes, sorted_edges);
+        augmented.restrictions = graph.restrictions.clone();
 
         Self {
             graph: augmented,
             node_order,
             shortcut_middle: sorted_middle,
+            shortcut_first_way: sorted_first,
+            shortcut_last_way: sorted_last,
         }
+    }
+
+    fn first_way(&self, edge_idx: usize) -> i64 {
+        self.shortcut_first_way[edge_idx]
+    }
+
+    fn last_way(&self, edge_idx: usize) -> i64 {
+        self.shortcut_last_way[edge_idx]
     }
 
     /// Query shortest path using bidirectional CH search.
@@ -227,15 +252,15 @@ impl ContractionHierarchy {
             return Some((0.0, vec![source]));
         }
 
-        let mut fwd_dist = vec![f64::INFINITY; n];
-        let mut fwd_prev: Vec<Option<(u32, usize)>> = vec![None; n];
-        let mut fwd_visited = vec![false; n];
-        fwd_dist[src_idx] = 0.0;
+        let mut fwd_dist: Vec<HashMap<i64, f64>> = vec![HashMap::new(); n];
+        let mut fwd_prev: Vec<HashMap<i64, (u32, i64)>> = vec![HashMap::new(); n];
+        let mut fwd_settled: Vec<HashSet<i64>> = vec![HashSet::new(); n];
+        fwd_dist[src_idx].insert(0, 0.0);
 
-        let mut bwd_dist = vec![f64::INFINITY; n];
-        let mut bwd_prev: Vec<Option<(u32, usize)>> = vec![None; n];
-        let mut bwd_visited = vec![false; n];
-        bwd_dist[tgt_idx] = 0.0;
+        let mut bwd_dist: Vec<HashMap<i64, f64>> = vec![HashMap::new(); n];
+        let mut bwd_prev: Vec<HashMap<i64, (u32, i64)>> = vec![HashMap::new(); n];
+        let mut bwd_settled: Vec<HashSet<i64>> = vec![HashSet::new(); n];
+        bwd_dist[tgt_idx].insert(0, 0.0);
 
         let mut fwd_heap = BinaryHeap::new();
         let mut bwd_heap = BinaryHeap::new();
@@ -243,14 +268,16 @@ impl ContractionHierarchy {
         fwd_heap.push(CHState {
             cost: 0.0,
             node: source,
+            way: 0,
         });
         bwd_heap.push(CHState {
             cost: 0.0,
             node: target,
+            way: 0,
         });
 
         let mut best_cost = f64::INFINITY;
-        let mut meeting_node: Option<NodeId> = None;
+        let mut meeting: Option<(NodeId, i64, i64)> = None;
 
         loop {
             let fwd_done = fwd_heap.is_empty();
@@ -260,20 +287,22 @@ impl ContractionHierarchy {
                 break;
             }
 
-            // Forward step
-            if let Some(CHState { cost, node }) = fwd_heap.pop() {
+            if let Some(CHState { cost, node, way }) = fwd_heap.pop() {
                 let node_idx = node.0 as usize;
 
                 if cost > best_cost {
                     // prune
-                } else if !fwd_visited[node_idx] {
-                    fwd_visited[node_idx] = true;
-
-                    if bwd_dist[node_idx] < f64::INFINITY {
-                        let total = cost + bwd_dist[node_idx];
+                } else if fwd_settled[node_idx].insert(way) {
+                    let bwd_arrivals: Vec<(i64, f64)> =
+                        bwd_dist[node_idx].iter().map(|(&w, &c)| (w, c)).collect();
+                    for (bwd_way, bwd_cost) in bwd_arrivals {
+                        if self.graph.turn_is_banned(node, way, bwd_way) {
+                            continue;
+                        }
+                        let total = cost + bwd_cost;
                         if total < best_cost {
                             best_cost = total;
-                            meeting_node = Some(node);
+                            meeting = Some((node, way, bwd_way));
                         }
                     }
 
@@ -284,15 +313,27 @@ impl ContractionHierarchy {
                         let edge = &self.graph.edges[edge_idx];
                         let to_idx = edge.to.0 as usize;
                         if to_idx < n && self.graph.nodes[to_idx].ch_level >= node_level {
+                            if self
+                                .graph
+                                .turn_is_banned(node, way, self.first_way(edge_idx))
+                            {
+                                continue;
+                            }
                             let weight = self.graph.edge_weight(edge, profile);
                             if weight < f64::INFINITY {
                                 let new_cost = cost + weight;
-                                if new_cost < fwd_dist[to_idx] {
-                                    fwd_dist[to_idx] = new_cost;
-                                    fwd_prev[to_idx] = Some((node.0, edge_idx));
+                                let next_way = self.last_way(edge_idx);
+                                let better = fwd_dist[to_idx]
+                                    .get(&next_way)
+                                    .copied()
+                                    .unwrap_or(f64::INFINITY);
+                                if new_cost < better {
+                                    fwd_dist[to_idx].insert(next_way, new_cost);
+                                    fwd_prev[to_idx].insert(next_way, (node.0, way));
                                     fwd_heap.push(CHState {
                                         cost: new_cost,
                                         node: edge.to,
+                                        way: next_way,
                                     });
                                 }
                             }
@@ -301,20 +342,22 @@ impl ContractionHierarchy {
                 }
             }
 
-            // Backward step (using reverse CSR)
-            if let Some(CHState { cost, node }) = bwd_heap.pop() {
+            if let Some(CHState { cost, node, way }) = bwd_heap.pop() {
                 let node_idx = node.0 as usize;
 
                 if cost > best_cost {
                     // prune
-                } else if !bwd_visited[node_idx] {
-                    bwd_visited[node_idx] = true;
-
-                    if fwd_dist[node_idx] < f64::INFINITY {
-                        let total = fwd_dist[node_idx] + cost;
+                } else if bwd_settled[node_idx].insert(way) {
+                    let fwd_arrivals: Vec<(i64, f64)> =
+                        fwd_dist[node_idx].iter().map(|(&w, &c)| (w, c)).collect();
+                    for (fwd_way, fwd_cost) in fwd_arrivals {
+                        if self.graph.turn_is_banned(node, fwd_way, way) {
+                            continue;
+                        }
+                        let total = fwd_cost + cost;
                         if total < best_cost {
                             best_cost = total;
-                            meeting_node = Some(node);
+                            meeting = Some((node, fwd_way, way));
                         }
                     }
 
@@ -325,15 +368,27 @@ impl ContractionHierarchy {
                         let edge = &self.graph.edges[ei as usize];
                         let from_idx = edge.from.0 as usize;
                         if from_idx < n && self.graph.nodes[from_idx].ch_level >= node_level {
+                            if self
+                                .graph
+                                .turn_is_banned(node, self.last_way(ei as usize), way)
+                            {
+                                continue;
+                            }
                             let weight = self.graph.edge_weight(edge, profile);
                             if weight < f64::INFINITY {
                                 let new_cost = cost + weight;
-                                if new_cost < bwd_dist[from_idx] {
-                                    bwd_dist[from_idx] = new_cost;
-                                    bwd_prev[from_idx] = Some((node.0, ei as usize));
+                                let next_way = self.first_way(ei as usize);
+                                let better = bwd_dist[from_idx]
+                                    .get(&next_way)
+                                    .copied()
+                                    .unwrap_or(f64::INFINITY);
+                                if new_cost < better {
+                                    bwd_dist[from_idx].insert(next_way, new_cost);
+                                    bwd_prev[from_idx].insert(next_way, (node.0, way));
                                     bwd_heap.push(CHState {
                                         cost: new_cost,
                                         node: edge.from,
+                                        way: next_way,
                                     });
                                 }
                             }
@@ -349,28 +404,30 @@ impl ContractionHierarchy {
             }
         }
 
-        let meeting = meeting_node?;
+        let (meet, meet_fwd_way, meet_bwd_way) = meeting?;
 
-        // Reconstruct forward path (source -> meeting)
         let mut fwd_path = Vec::new();
         {
-            let mut current = meeting.0 as usize;
+            let mut current = meet.0 as usize;
+            let mut cur_way = meet_fwd_way;
             while current != src_idx {
                 fwd_path.push(NodeId(current as u32));
-                let (prev_node, _) = fwd_prev[current]?;
+                let &(prev_node, prev_way) = fwd_prev[current].get(&cur_way)?;
                 current = prev_node as usize;
+                cur_way = prev_way;
             }
             fwd_path.push(source);
             fwd_path.reverse();
         }
 
-        // Reconstruct backward path (meeting -> target)
         let mut bwd_path = Vec::new();
         {
-            let mut current = meeting.0 as usize;
+            let mut current = meet.0 as usize;
+            let mut cur_way = meet_bwd_way;
             while current != tgt_idx {
-                let (prev_node, _) = bwd_prev[current]?;
-                current = prev_node as usize;
+                let &(next_node, next_way) = bwd_prev[current].get(&cur_way)?;
+                current = next_node as usize;
+                cur_way = next_way;
                 bwd_path.push(NodeId(current as u32));
             }
         }
@@ -378,7 +435,6 @@ impl ContractionHierarchy {
         let mut packed_path = fwd_path;
         packed_path.extend(bwd_path);
 
-        // Unpack shortcuts into full path
         let full_path = self.unpack_path(&packed_path, profile);
 
         Some((best_cost, full_path))
@@ -447,27 +503,39 @@ impl ContractionHierarchy {
 
 fn count_shortcuts_needed(
     v: usize,
-    out_adj: &[Vec<(NodeId, f64, usize)>],
-    in_adj: &[Vec<(NodeId, f64, usize)>],
+    out_adj: &[Vec<Neighbour>],
+    in_adj: &[Vec<Neighbour>],
     contracted: &[bool],
+    graph: &Graph,
 ) -> i64 {
     let incoming: Vec<_> = in_adj[v]
         .iter()
-        .filter(|(from, _, _)| !contracted[from.0 as usize])
+        .filter(|nb| !contracted[nb.node.0 as usize])
         .collect();
     let outgoing: Vec<_> = out_adj[v]
         .iter()
-        .filter(|(to, _, _)| !contracted[to.0 as usize])
+        .filter(|nb| !contracted[nb.node.0 as usize])
         .collect();
 
     let mut count = 0i64;
-    for &(u, w_uv, _) in &incoming {
-        for &(w, w_vw, _) in &outgoing {
-            if u == w {
+    for uv in &incoming {
+        for vw in &outgoing {
+            if uv.node == vw.node {
                 continue;
             }
-            let shortcut_cost = w_uv + w_vw;
-            if needs_shortcut(*u, *w, shortcut_cost, v, out_adj, contracted) {
+            if graph.turn_is_banned(NodeId(v as u32), uv.last_way, vw.first_way) {
+                continue;
+            }
+            let shortcut_cost = uv.weight + vw.weight;
+            if needs_shortcut(
+                uv.node,
+                vw.node,
+                shortcut_cost,
+                v,
+                out_adj,
+                contracted,
+                graph,
+            ) {
                 count += 1;
             }
         }
@@ -480,20 +548,25 @@ fn needs_shortcut(
     w: NodeId,
     shortcut_cost: f64,
     v: usize,
-    out_adj: &[Vec<(NodeId, f64, usize)>],
+    out_adj: &[Vec<Neighbour>],
     contracted: &[bool],
+    graph: &Graph,
 ) -> bool {
     let n = out_adj.len();
-    let mut dist = vec![f64::INFINITY; n];
+    let mut dist: HashMap<(u32, i64), f64> = HashMap::new();
     let mut heap = BinaryHeap::new();
 
-    dist[u.0 as usize] = 0.0;
-    heap.push(CHState { cost: 0.0, node: u });
+    dist.insert((u.0, 0), 0.0);
+    heap.push(CHState {
+        cost: 0.0,
+        node: u,
+        way: 0,
+    });
 
     let max_settle = 5 * n.min(100);
     let mut settled = 0;
 
-    while let Some(CHState { cost, node }) = heap.pop() {
+    while let Some(CHState { cost, node, way }) = heap.pop() {
         if node == w && cost <= shortcut_cost {
             return false;
         }
@@ -512,17 +585,24 @@ fn needs_shortcut(
             continue;
         }
 
-        for &(next, weight, _) in &out_adj[node_idx] {
-            let next_idx = next.0 as usize;
+        for nb in &out_adj[node_idx] {
+            let next_idx = nb.node.0 as usize;
             if next_idx == v || contracted[next_idx] {
                 continue;
             }
-            let new_cost = cost + weight;
-            if new_cost < dist[next_idx] && new_cost <= shortcut_cost {
-                dist[next_idx] = new_cost;
+            if graph.turn_is_banned(node, way, nb.first_way) {
+                continue;
+            }
+            let new_cost = cost + nb.weight;
+            let next_key = (nb.node.0, nb.last_way);
+            if new_cost < dist.get(&next_key).copied().unwrap_or(f64::INFINITY)
+                && new_cost <= shortcut_cost
+            {
+                dist.insert(next_key, new_cost);
                 heap.push(CHState {
                     cost: new_cost,
-                    node: next,
+                    node: nb.node,
+                    way: nb.last_way,
                 });
             }
         }
@@ -534,7 +614,8 @@ fn needs_shortcut(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itinera_graph::{Coord, Node};
+    use crate::route_from_path;
+    use itinera_graph::{Coord, Node, TurnRestriction};
 
     fn test_graph() -> Graph {
         let nodes = vec![
@@ -668,5 +749,129 @@ mod tests {
 
         let result = ch.query(NodeId(1), NodeId(1), &profile);
         assert_eq!(result, Some((0.0, vec![NodeId(1)])));
+    }
+
+    #[test]
+    fn test_ch_query_distance_and_steps() {
+        let g = test_graph();
+        let profile = SpeedProfile::car();
+        let ch = ContractionHierarchy::build(&g, &profile);
+        let (cost, path) = ch.query(NodeId(0), NodeId(3), &profile).unwrap();
+        let node_ids: Vec<u32> = path.iter().map(|n| n.0).collect();
+        let route = route_from_path(&g, &node_ids, &profile, cost);
+
+        assert!((route.distance_m - 1500.0).abs() < 1e-6);
+        assert!(!route.steps.is_empty());
+        assert_eq!(route.steps.len(), node_ids.len() - 1);
+
+        let ped = SpeedProfile::pedestrian();
+        let ch_ped = ContractionHierarchy::build(&g, &ped);
+        let (ped_cost, ped_path) = ch_ped.query(NodeId(0), NodeId(3), &ped).unwrap();
+        let ped_ids: Vec<u32> = ped_path.iter().map(|n| n.0).collect();
+        let ped_route = route_from_path(&g, &ped_ids, &ped, ped_cost);
+        assert!((ped_route.distance_m - 1500.0).abs() < 1e-6);
+        let fabricated = ped_cost * 50.0 / 3.6;
+        assert!((fabricated - ped_route.distance_m).abs() > 100.0);
+        assert!(!ped_route.steps.is_empty());
+    }
+
+    fn banned_left_graph() -> Graph {
+        let nodes = vec![
+            Node {
+                id: NodeId(0),
+                coord: Coord::new(0.0, 0.0),
+                osm_id: 1,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(1),
+                coord: Coord::new(0.0, 1.0),
+                osm_id: 2,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(2),
+                coord: Coord::new(0.0, 2.0),
+                osm_id: 3,
+                ch_level: 0,
+            },
+            Node {
+                id: NodeId(3),
+                coord: Coord::new(1.0, 1.0),
+                osm_id: 4,
+                ch_level: 0,
+            },
+        ];
+        let edges = vec![
+            Edge {
+                from: NodeId(0),
+                to: NodeId(1),
+                distance_m: 100.0,
+                duration_s: 10.0,
+                way_id: 1,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(1),
+                to: NodeId(2),
+                distance_m: 100.0,
+                duration_s: 10.0,
+                way_id: 2,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(0),
+                to: NodeId(3),
+                distance_m: 800.0,
+                duration_s: 80.0,
+                way_id: 3,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+            Edge {
+                from: NodeId(3),
+                to: NodeId(2),
+                distance_m: 800.0,
+                duration_s: 80.0,
+                way_id: 4,
+                road_class: 5,
+                oneway: true,
+                name: None,
+                geometry: vec![],
+            },
+        ];
+        let mut g = Graph::build(nodes, edges);
+        g.restrictions.push(TurnRestriction {
+            via_node: NodeId(1),
+            from_way: 1,
+            to_way: 2,
+            restriction_type: itinera_graph::turn::RestrictionType::No,
+        });
+        g
+    }
+
+    #[test]
+    fn test_ch_copies_restrictions_and_avoids_banned_turn() {
+        let g = banned_left_graph();
+        let profile = SpeedProfile::car();
+        let ch = ContractionHierarchy::build(&g, &profile);
+        assert_eq!(ch.graph.restrictions.len(), 1);
+
+        let (cost, path) = ch.query(NodeId(0), NodeId(2), &profile).unwrap();
+        let node_ids: Vec<u32> = path.iter().map(|n| n.0).collect();
+        assert_eq!(node_ids, vec![0, 3, 2]);
+        assert!(!node_ids.windows(2).any(|hop| hop == [1, 2]));
+
+        let route = route_from_path(&g, &node_ids, &profile, cost);
+        assert!((route.distance_m - 1600.0).abs() < 1e-6);
+        assert!(!route.steps.is_empty());
     }
 }

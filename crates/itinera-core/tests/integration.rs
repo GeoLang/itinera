@@ -1,7 +1,9 @@
 //! Integration tests for the Itinera routing engine.
 
-use itinera_core::{ContractionHierarchy, DEFAULT_CONCAVITY, astar, dijkstra, isochrone};
-use itinera_graph::{Coord, Edge, Graph, Node, NodeId, SpeedProfile};
+use itinera_core::{
+    ContractionHierarchy, DEFAULT_CONCAVITY, astar, dijkstra, isochrone, route_from_path,
+};
+use itinera_graph::{Coord, Edge, Graph, Node, NodeId, SpeedProfile, TurnRestriction};
 
 /// Build a grid graph for testing:
 ///
@@ -366,7 +368,7 @@ fn test_speed_profile_from_name() {
 
 #[test]
 fn test_turn_restriction_check() {
-    use itinera_graph::turn::{RestrictionType, TurnRestriction};
+    use itinera_graph::turn::RestrictionType;
 
     let mut g = grid_3x3();
     g.restrictions.push(TurnRestriction {
@@ -379,6 +381,116 @@ fn test_turn_restriction_check() {
     assert!(g.is_turn_restricted(NodeId(1), 1, 2));
     assert!(!g.is_turn_restricted(NodeId(1), 1, 3));
     assert!(!g.is_turn_restricted(NodeId(2), 1, 2));
+}
+
+fn banned_left_junction() -> Graph {
+    let nodes = vec![
+        Node {
+            id: NodeId(0),
+            coord: Coord::new(0.0, 0.0),
+            osm_id: 1,
+            ch_level: 0,
+        },
+        Node {
+            id: NodeId(1),
+            coord: Coord::new(0.0, 1.0),
+            osm_id: 2,
+            ch_level: 0,
+        },
+        Node {
+            id: NodeId(2),
+            coord: Coord::new(0.0, 2.0),
+            osm_id: 3,
+            ch_level: 0,
+        },
+        Node {
+            id: NodeId(3),
+            coord: Coord::new(1.0, 1.0),
+            osm_id: 4,
+            ch_level: 0,
+        },
+    ];
+    let edges = vec![
+        Edge {
+            from: NodeId(0),
+            to: NodeId(1),
+            distance_m: 100.0,
+            duration_s: 10.0,
+            way_id: 1,
+            road_class: 5,
+            oneway: true,
+            name: None,
+            geometry: Vec::new(),
+        },
+        Edge {
+            from: NodeId(1),
+            to: NodeId(2),
+            distance_m: 100.0,
+            duration_s: 10.0,
+            way_id: 2,
+            road_class: 5,
+            oneway: true,
+            name: None,
+            geometry: Vec::new(),
+        },
+        Edge {
+            from: NodeId(0),
+            to: NodeId(3),
+            distance_m: 800.0,
+            duration_s: 80.0,
+            way_id: 3,
+            road_class: 5,
+            oneway: true,
+            name: None,
+            geometry: Vec::new(),
+        },
+        Edge {
+            from: NodeId(3),
+            to: NodeId(2),
+            distance_m: 800.0,
+            duration_s: 80.0,
+            way_id: 4,
+            road_class: 5,
+            oneway: true,
+            name: None,
+            geometry: Vec::new(),
+        },
+    ];
+    let mut g = Graph::build(nodes, edges);
+    g.restrictions.push(TurnRestriction {
+        via_node: NodeId(1),
+        from_way: 1,
+        to_way: 2,
+        restriction_type: itinera_graph::turn::RestrictionType::No,
+    });
+    g
+}
+
+#[test]
+fn test_dijkstra_and_astar_avoid_banned_left_turn() {
+    let g = banned_left_junction();
+    let profile = SpeedProfile::car();
+
+    let d_route = dijkstra(&g, NodeId(0), NodeId(2), &profile).unwrap();
+    let a_route = astar(&g, NodeId(0), NodeId(2), &profile).unwrap();
+
+    assert_eq!(d_route.node_ids, vec![0, 3, 2]);
+    assert_eq!(a_route.node_ids, vec![0, 3, 2]);
+    assert!(!d_route.node_ids.windows(2).any(|hop| hop == [1, 2]));
+    assert!(!a_route.node_ids.windows(2).any(|hop| hop == [1, 2]));
+}
+
+#[test]
+fn test_ch_route_from_path_uses_edge_lengths() {
+    let g = linear_5();
+    let profile = SpeedProfile::car();
+    let ch = ContractionHierarchy::build(&g, &profile);
+    let (cost, path) = ch.query(NodeId(0), NodeId(4), &profile).unwrap();
+    let node_ids: Vec<u32> = path.iter().map(|n| n.0).collect();
+    let route = route_from_path(&g, &node_ids, &profile, cost);
+
+    assert!((route.distance_m - 2000.0).abs() < 1e-6);
+    assert_eq!(route.steps.len(), 4);
 }
 
 #[test]

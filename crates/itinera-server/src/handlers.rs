@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use itinera_core::{DEFAULT_CONCAVITY, Route, astar, dijkstra, isochrone, network_analysis, vrp};
+use itinera_core::{
+    DEFAULT_CONCAVITY, Route, astar, dijkstra, isochrone, network_analysis, route_from_path, vrp,
+};
 use itinera_graph::{Coord, Graph, NodeId, SpeedProfile};
 
 use crate::state::AppState;
@@ -166,17 +168,23 @@ async fn route_handler(
                 )
             })?;
 
-            let geometry: Vec<[f64; 2]> = path
-                .iter()
-                .filter_map(|nid| ch.graph.node_coord(*nid))
-                .map(|c| [c.lat, c.lon])
-                .collect();
+            let node_ids: Vec<u32> = path.iter().map(|nid| nid.0).collect();
+            let route = route_from_path(&state.graph, &node_ids, &profile, cost);
 
             Ok(Json(RouteResponse {
-                distance_m: cost * 50.0 / 3.6, // approximate from travel time
-                duration_s: cost,
-                geometry,
-                steps: Vec::new(), // CH doesn't produce detailed steps
+                distance_m: route.distance_m,
+                duration_s: route.duration_s,
+                geometry: route.geometry.iter().map(|c| [c.lat, c.lon]).collect(),
+                steps: route
+                    .steps
+                    .iter()
+                    .map(|s| StepResponse {
+                        distance_m: s.distance_m,
+                        duration_s: s.duration_s,
+                        name: s.name.clone(),
+                        maneuver: format!("{:?}", s.maneuver),
+                    })
+                    .collect(),
             }))
         }
         _ => {
