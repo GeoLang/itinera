@@ -35,7 +35,7 @@ No garbage collector pauses. No segfaults. No dependency hell.
 ## Features
 
 - **Dijkstra & A\*** — Classic shortest-path algorithms with haversine heuristic
-- **Contraction Hierarchies** — Sub-millisecond queries on continental-scale networks
+- **Contraction Hierarchies** — Fast queries on continental-scale networks (sub-millisecond is a target, see Performance Targets)
 - **Isochrones** — Reachability polygons for travel-time analysis
 - **OSM Import** — Parse OpenStreetMap XML and PBF into a compact routing graph
 - **Turn-by-turn** — Navigation instructions with maneuver detection (bearing-based)
@@ -44,7 +44,7 @@ No garbage collector pauses. No segfaults. No dependency hell.
 - **CSR Graph** — Cache-friendly Compressed Sparse Row with reverse index
 - **R-tree spatial index** — Fast nearest-node queries
 - **Binary serialization** — Compact bincode format for instant graph loading
-- **Turn restrictions** — No-turn / only-turn parsed from OSM relations and stored; not yet enforced by the routing algorithms
+- **Turn restrictions** — No-turn / only-turn parsed from OSM relations and enforced by Dijkstra, A*, and Contraction Hierarchies
 - **Network analysis** — Connected components, OD matrix, closest facility, betweenness centrality
 
 ---
