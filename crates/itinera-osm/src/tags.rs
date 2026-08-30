@@ -66,6 +66,16 @@ mod tests {
     }
 
     #[test]
+    fn every_road_class_name_imports_back_to_its_own_class() {
+        for name in itinera_graph::ROAD_CLASS_NAMES {
+            assert_eq!(
+                itinera_graph::road_class_name(highway_to_road_class(name)),
+                name
+            );
+        }
+    }
+
+    #[test]
     fn test_oneway() {
         let tags = vec![("oneway".to_string(), "yes".to_string())];
         assert!(is_oneway(&tags, "primary"));

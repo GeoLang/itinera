@@ -11,7 +11,7 @@ mod profile;
 pub mod turn;
 
 pub use coord::Coord;
-pub use edge::{Edge, EdgeId};
+pub use edge::{Edge, EdgeId, ROAD_CLASS_NAMES, road_class_name};
 pub use graph::Graph;
 pub use node::{Node, NodeId};
 pub use profile::{SpeedProfile, TravelMode};

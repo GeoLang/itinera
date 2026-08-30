@@ -2,6 +2,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::NodeId;
 
+/// Names for `Edge::road_class`, index 0 being the class the OSM import gives a
+/// way it does not recognise.
+pub const ROAD_CLASS_NAMES: [&str; 8] = [
+    "unknown",
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "unclassified",
+    "residential",
+];
+
+/// Name of an `Edge::road_class`. Values outside the table read as unknown.
+#[must_use]
+pub fn road_class_name(road_class: u8) -> &'static str {
+    ROAD_CLASS_NAMES
+        .get(road_class as usize)
+        .copied()
+        .unwrap_or(ROAD_CLASS_NAMES[0])
+}
+
 /// Opaque edge identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EdgeId(pub u32);

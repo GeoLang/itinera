@@ -2,22 +2,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use itinera_core::ContractionHierarchy;
-use itinera_graph::{Graph, SpeedProfile};
+use itinera_graph::{Graph, SpeedProfile, road_class_name};
 use itinera_match::{RoadNetwork, RoadSegment};
 use uuid::Uuid;
-
-/// Names for `Edge::road_class`, index 0 being the class the OSM import gives a
-/// way it does not recognise.
-const ROAD_CLASS_NAMES: [&str; 8] = [
-    "unknown",
-    "motorway",
-    "trunk",
-    "primary",
-    "secondary",
-    "tertiary",
-    "unclassified",
-    "residential",
-];
 
 const UNNAMED_ROAD: &str = "unnamed";
 
@@ -90,11 +77,4 @@ fn road_network_from_graph(graph: &Graph, profile: &SpeedProfile) -> RoadNetwork
     }
 
     RoadNetwork::new(segments)
-}
-
-fn road_class_name(road_class: u8) -> &'static str {
-    ROAD_CLASS_NAMES
-        .get(road_class as usize)
-        .copied()
-        .unwrap_or(ROAD_CLASS_NAMES[0])
 }
