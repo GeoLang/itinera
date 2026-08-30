@@ -1044,6 +1044,7 @@ name = "itinera-match"
 version = "0.1.0"
 dependencies = [
  "itinera-graph",
+ "rstar",
  "serde",
  "tracing",
  "uuid",
@@ -1068,6 +1069,7 @@ dependencies = [
  "http-body-util",
  "itinera-core",
  "itinera-graph",
+ "itinera-match",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",

@@ -10,6 +10,7 @@ authors.workspace = true
 [dependencies]
 itinera-core = { workspace = true }
 itinera-graph = { workspace = true }
+itinera-match = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

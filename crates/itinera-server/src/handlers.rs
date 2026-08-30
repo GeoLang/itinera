@@ -16,6 +16,7 @@ use itinera_core::{
     DEFAULT_CONCAVITY, Route, astar, dijkstra, isochrone, network_analysis, route_from_path, vrp,
 };
 use itinera_graph::{Coord, Graph, NodeId, SpeedProfile};
+use itinera_match::{GpsPoint, MapMatchRequest, MapMatchResult, MatchProfile, match_trace};
 
 use crate::state::AppState;
 use crate::{auth, metrics};
@@ -29,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/route", get(route_handler))
         .route("/nearest", get(nearest_handler))
         .route("/isochrone", get(isochrone_handler))
+        .route("/match", post(match_handler))
         .route("/delivery/optimize", post(delivery_optimize))
         .route("/network/components", post(network_components))
         .route("/network/od-matrix", post(network_od_matrix))
@@ -311,6 +313,94 @@ fn resolve_profile(
 
 fn bad_request(msg: String) -> (StatusCode, Json<ErrorResponse>) {
     (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: msg }))
+}
+
+// === Map Matching ===
+
+// the matcher scores every candidate pair between consecutive points, so both the
+// trace length and the radius that decides how many candidates a point has are capped
+const MAX_MATCH_TRACE_POINTS: usize = 1000;
+const DEFAULT_MATCH_SEARCH_RADIUS_M: f64 = 50.0;
+const MAX_MATCH_SEARCH_RADIUS_M: f64 = 1000.0;
+
+#[derive(Debug, Deserialize)]
+struct MatchRequest {
+    trace: Vec<TracePoint>,
+    /// Profile: "driving" (default), "walking", "cycling"
+    profile: Option<String>,
+    /// How far from a trace point to look for roads (default 50).
+    search_radius_m: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TracePoint {
+    lat: f64,
+    lon: f64,
+    timestamp: Option<f64>,
+    accuracy_m: Option<f64>,
+    speed_mps: Option<f64>,
+    bearing_deg: Option<f64>,
+}
+
+async fn match_handler(
+    State(state): State<AppState>,
+    Json(req): Json<MatchRequest>,
+) -> Result<Json<MapMatchResult>, (StatusCode, Json<ErrorResponse>)> {
+    ::metrics::counter!("itinera_match_requests").increment(1);
+    let profile = resolve_match_profile(req.profile.as_deref())?;
+    let search_radius_m = resolve_search_radius(req.search_radius_m)?;
+
+    if req.trace.is_empty() {
+        return Err(bad_request("trace must not be empty".to_string()));
+    }
+    if req.trace.len() > MAX_MATCH_TRACE_POINTS {
+        return Err(bad_request(format!(
+            "trace has {} points, max {MAX_MATCH_TRACE_POINTS}",
+            req.trace.len()
+        )));
+    }
+
+    let request = MapMatchRequest {
+        trace: req
+            .trace
+            .iter()
+            .map(|p| GpsPoint {
+                latitude: p.lat,
+                longitude: p.lon,
+                timestamp: p.timestamp,
+                accuracy_m: p.accuracy_m,
+                speed_mps: p.speed_mps,
+                bearing_deg: p.bearing_deg,
+            })
+            .collect(),
+        profile,
+        search_radius_m,
+    };
+
+    Ok(Json(match_trace(&request, &state.road_network)))
+}
+
+fn resolve_match_profile(
+    name: Option<&str>,
+) -> Result<MatchProfile, (StatusCode, Json<ErrorResponse>)> {
+    match name {
+        None | Some("driving") => Ok(MatchProfile::Driving),
+        Some("walking") => Ok(MatchProfile::Walking),
+        Some("cycling") => Ok(MatchProfile::Cycling),
+        Some(name) => Err(bad_request(format!(
+            "unknown profile '{name}'; valid options: driving, walking, cycling"
+        ))),
+    }
+}
+
+fn resolve_search_radius(radius_m: Option<f64>) -> Result<f64, (StatusCode, Json<ErrorResponse>)> {
+    let radius_m = radius_m.unwrap_or(DEFAULT_MATCH_SEARCH_RADIUS_M);
+    if radius_m <= 0.0 || radius_m > MAX_MATCH_SEARCH_RADIUS_M || radius_m.is_nan() {
+        return Err(bad_request(format!(
+            "search_radius_m must be greater than 0 and at most {MAX_MATCH_SEARCH_RADIUS_M}"
+        )));
+    }
+    Ok(radius_m)
 }
 
 // === Delivery Optimization ===

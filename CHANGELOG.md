@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-08-30
+
+### Added
+
+- `POST /match` snaps a GPS trace to the loaded routing graph. `itinera-match` was a
+  library with no way to reach it and no road network to match against, so the server
+  now builds one `RoadNetwork` from the graph at startup, one segment per road with the
+  way's name, class and profile speed. A trace holds 1 to 1000 points, the profile is
+  `driving`, `walking` or `cycling`, and `search_radius_m` defaults to 50 and is capped
+  at 1000.
+- `RoadNetwork` indexes its segments in an R-tree. `candidates()` scanned every segment
+  for every trace point, which a graph-sized network cannot afford on a request path.
+
 ## [Unreleased] - 2026-08-12
 
 ### Changed

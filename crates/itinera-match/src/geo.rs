@@ -1,6 +1,11 @@
+pub const EARTH_RADIUS_M: f64 = 6_371_000.0;
+
+/// Meters per degree of latitude on the sphere `haversine` measures.
+pub const METERS_PER_DEGREE: f64 = EARTH_RADIUS_M * std::f64::consts::PI / 180.0;
+
 /// Haversine distance in meters between two lat/lon points.
 pub fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let r = 6_371_000.0;
+    let r = EARTH_RADIUS_M;
     let dlat = (lat2 - lat1).to_radians();
     let dlon = (lon2 - lon1).to_radians();
     let a = (dlat / 2.0).sin().powi(2)

@@ -6,7 +6,7 @@ Routing core with no C dependencies. Single binary. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-84_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-100_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
@@ -46,6 +46,7 @@ No garbage collector pauses. No segfaults. No dependency hell.
 - **Binary serialization** — Compact bincode format for instant graph loading
 - **Turn restrictions** — No-turn / only-turn parsed from OSM relations and enforced by Dijkstra, A*, and Contraction Hierarchies
 - **Network analysis** — Connected components, OD matrix, closest facility, betweenness centrality
+- **Map matching**: HMM snapping of GPS traces onto the loaded routing graph
 
 ---
 
@@ -57,9 +58,8 @@ itinera/
 │   ├── itinera-graph/    # CSR graph, nodes, edges, profiles, R-tree
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
-│   ├── itinera-match/    # HMM map matching of GPS traces to a standalone road network
-│   │                     # (library-only, not the routing graph, no HTTP endpoint)
-│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, network analysis)
+│   ├── itinera-match/    # HMM map matching of GPS traces, R-tree indexed
+│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match, network analysis)
 │   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
 └── docs/                 # GitHub Pages documentation
 ```
@@ -104,6 +104,7 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 | `GET /route?from=lat,lon&to=lat,lon` | Compute shortest route |
 | `GET /nearest?lat=...&lon=...` | Find nearest graph node |
 | `GET /isochrone?lat=...&lon=...&max_seconds=...` | Reachability polygon |
+| `POST /match` | Snap a GPS trace to the road network |
 | `POST /delivery/optimize` | Stop ordering over great-circle distances at a fixed 30 km/h, not road distances |
 | `POST /network/components` | Connected components of the graph |
 | `POST /network/od-matrix` | Origin-destination travel time matrix |
@@ -128,6 +129,22 @@ times in seconds under the requested `profile`.
 curl -X POST http://localhost:5000/network/od-matrix \
   -H 'Content-Type: application/json' \
   -d '{"origins":[{"lat":48.8566,"lon":2.3522}],"destinations":[{"lat":48.8738,"lon":2.2950}]}'
+```
+
+**Map matching:** `POST /match` takes a `trace` of `{"lat": ..., "lon": ...}` points, each
+optionally carrying `timestamp`, `accuracy_m`, `speed_mps` and `bearing_deg`, which are
+accepted but do not yet steer the match. The optional
+`profile` is `driving` (default), `walking` or `cycling`, and `search_radius_m` (default 50,
+max 1000) sets how far from a point the matcher looks for roads. A trace holds 1 to 1000
+points. The trace is snapped to the graph the server loaded, which is indexed as one segment
+per road, so a two-way road counts once. The response gives the snapped points with their
+road names, the matched route, a confidence in 0 to 1, the total distance, and the roads the
+trace ran along with their travel times under the requested profile.
+
+```bash
+curl -X POST http://localhost:5000/match \
+  -H 'Content-Type: application/json' \
+  -d '{"trace":[{"lat":48.8566,"lon":2.3522},{"lat":48.8570,"lon":2.3530}],"profile":"driving"}'
 ```
 
 **Response (route):**
