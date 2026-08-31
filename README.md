@@ -164,6 +164,8 @@ curl -X POST http://localhost:5000/match \
 
 ## Performance Targets
 
+These are design targets. There is no benchmark suite in the repo, so none of them has been measured.
+
 | Metric | Target |
 |--------|--------|
 | Graph build (Germany, 20M edges) | < 60s |
