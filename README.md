@@ -162,18 +162,27 @@ curl -X POST http://localhost:5000/match \
 
 ---
 
-## Performance Targets
+## Performance
 
-These are design targets. There is no benchmark suite in the repo, so none of them has been measured.
+Measured with `cargo bench -p itinera-core --bench performance_targets` on a
+24-core Threadripper with 128 GB RAM. The fixtures are generated street grids,
+the repo ships no road network, so each row names the size actually measured.
+The last column keeps the original design targets at Germany scale (20M
+edges), which nothing here has measured.
 
-| Metric | Target |
-|--------|--------|
-| Graph build (Germany, 20M edges) | < 60s |
-| CH preprocessing (Germany) | < 5 min |
-| Point-to-point query (CH) | < 1ms |
-| Isochrone (10 min budget) | < 50ms |
-| Memory (Germany graph) | < 2 GB |
-| Binary graph load time | < 2s |
+| Operation | Measured | On | Target at Germany scale |
+|--------|--------|--------|--------|
+| Graph build (CSR + R-tree) | 192 ms | 262k nodes, 1.05M edges | < 60 s |
+| OSM XML import | 116 ms | 4.8 MiB XML, 261k edges | none set |
+| CH preprocessing | 3.6 s | 576 nodes, 1746 shortcuts | < 5 min |
+| Point-to-point query (CH) | 170 us | 576 nodes, corner to corner | < 1 ms |
+| Isochrone (10 min budget) | 7.0 ms | 11k of 262k nodes reached | < 50 ms |
+| Binary graph save and load | 56 ms and 90 ms | 56 MiB | < 2 s load |
+| Memory | not measured | serialized size is 56 MiB at 1.05M edges | < 2 GB |
+
+CH preprocessing time grows steeply with node count because the node ordering
+rescans every remaining node at each level, so the 576-node figure does not
+extrapolate to large graphs.
 
 ---
 

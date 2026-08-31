@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-08-31
 
+### Added
+
+- A criterion bench suite (`performance_targets` in itinera-core) covering
+  graph build, OSM XML import, CH preprocessing and query, isochrones and the
+  binary round trip, on generated street grids sized in each bench id. The
+  README performance table now quotes numbers measured with it on an idle
+  24-core machine instead of unmeasured design targets.
+
 ### Fixed
 
 - `ContractionHierarchy::query` can traverse shortcuts. A shortcut edge is stored with road
