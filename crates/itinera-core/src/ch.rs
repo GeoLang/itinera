@@ -233,6 +233,19 @@ impl ContractionHierarchy {
         self.shortcut_last_way[edge_idx]
     }
 
+    /// Travel time along an edge of the augmented graph.
+    ///
+    /// A shortcut has no road class to look a speed up from, so it carries the summed cost of
+    /// the two edges it replaces, under the profile the hierarchy was built with.
+    fn edge_weight(&self, edge_idx: usize, profile: &SpeedProfile) -> f64 {
+        let edge = &self.graph.edges[edge_idx];
+        if self.shortcut_middle[edge_idx].is_some() {
+            edge.duration_s
+        } else {
+            self.graph.edge_weight(edge, profile)
+        }
+    }
+
     /// Query shortest path using bidirectional CH search.
     pub fn query(
         &self,
@@ -319,7 +332,7 @@ impl ContractionHierarchy {
                             {
                                 continue;
                             }
-                            let weight = self.graph.edge_weight(edge, profile);
+                            let weight = self.edge_weight(edge_idx, profile);
                             if weight < f64::INFINITY {
                                 let new_cost = cost + weight;
                                 let next_way = self.last_way(edge_idx);
@@ -374,7 +387,7 @@ impl ContractionHierarchy {
                             {
                                 continue;
                             }
-                            let weight = self.graph.edge_weight(edge, profile);
+                            let weight = self.edge_weight(ei as usize, profile);
                             if weight < f64::INFINITY {
                                 let new_cost = cost + weight;
                                 let next_way = self.first_way(ei as usize);
@@ -479,7 +492,7 @@ impl ContractionHierarchy {
         for edge_idx in start..end {
             let edge = &self.graph.edges[edge_idx];
             if edge.to == to {
-                let w = self.graph.edge_weight(edge, profile);
+                let w = self.edge_weight(edge_idx, profile);
                 if w < best_weight {
                     best_weight = w;
                     best_edge_idx = Some(edge_idx);

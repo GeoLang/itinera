@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-08-31
+
+### Fixed
+
+- `ContractionHierarchy::query` can traverse shortcuts. A shortcut edge is stored with road
+  class 0, which every speed profile maps to 0 km/h, so `edge_weight` reported it as
+  unreachable and both directions of the search skipped it. On any graph whose contraction
+  adds shortcuts, that left the query returning no route at all, or one slower than Dijkstra
+  finds on the same graph. A shortcut now costs the travel time recorded when it was built.
+  Only grids of identical streets escaped it, because contraction adds no shortcut there,
+  and those were the only graphs the tests covered.
+
 ## [Unreleased] - 2026-08-30
 
 ### Added

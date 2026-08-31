@@ -223,22 +223,29 @@ fn contraction_hierarchy_preprocessing(criterion: &mut Criterion) {
 
 fn contraction_hierarchy_query(criterion: &mut Criterion) {
     let profile = SpeedProfile::car();
-    let graph = grid_graph(CONTRACTION_GRID_SIDE, GridStyle::UniformStreets);
-    let hierarchy = ContractionHierarchy::build(&graph, &profile);
-    let corner = NodeId(graph.num_nodes() as u32 - 1);
-    let id = format!(
-        "uniform_streets_{}_nodes_corner_to_corner",
-        graph.num_nodes()
-    );
-
     let mut group = criterion.benchmark_group("ch_query");
-    group.bench_function(id, |bencher| {
-        bencher.iter(|| {
-            hierarchy
-                .query(black_box(NodeId(0)), black_box(corner), &profile)
-                .expect("corner to corner path exists")
+
+    for (label, style) in [
+        ("uniform_streets", GridStyle::UniformStreets),
+        ("arterials", GridStyle::ArterialsAndVariedLengths),
+    ] {
+        let graph = grid_graph(CONTRACTION_GRID_SIDE, style);
+        let hierarchy = ContractionHierarchy::build(&graph, &profile);
+        let shortcuts = hierarchy.graph.num_edges() - graph.num_edges();
+        let corner = NodeId(graph.num_nodes() as u32 - 1);
+        let id = format!(
+            "{label}_{}_nodes_{shortcuts}_shortcuts_corner_to_corner",
+            graph.num_nodes()
+        );
+        group.bench_function(id, |bencher| {
+            bencher.iter(|| {
+                hierarchy
+                    .query(black_box(NodeId(0)), black_box(corner), &profile)
+                    .expect("corner to corner path exists")
+            });
         });
-    });
+    }
+
     group.finish();
 }
 
