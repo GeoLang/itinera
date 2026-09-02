@@ -6,7 +6,7 @@ Routing core with no C dependencies. Single binary. Blazing fast.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-101_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-102_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
@@ -35,7 +35,7 @@ No garbage collector pauses. No segfaults. No dependency hell.
 ## Features
 
 - **Dijkstra & A\*** — Classic shortest-path algorithms with haversine heuristic
-- **Contraction Hierarchies** — Fast queries on continental-scale networks (sub-millisecond is a target, see Performance Targets)
+- **Contraction Hierarchies** — Fast queries on continental-scale networks (170 us on a 576-node grid, see Performance)
 - **Isochrones** — Reachability polygons for travel-time analysis
 - **OSM Import** — Parse OpenStreetMap XML and PBF into a compact routing graph
 - **Turn-by-turn** — Navigation instructions with maneuver detection (bearing-based)
@@ -59,8 +59,8 @@ itinera/
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
 │   ├── itinera-match/    # HMM map matching of GPS traces, R-tree indexed
-│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match, network analysis)
-│   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
+│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match, delivery, network analysis)
+│   └── itinera-cli/      # CLI binary (import, preprocess, serve, route, isochrone)
 └── docs/                 # GitHub Pages documentation
 ```
 
@@ -85,7 +85,7 @@ itinera serve --bind 0.0.0.0:5000 --graph graph.bin --ch ch.bin
 # Query a route
 curl "http://localhost:5000/route?from=48.8566,2.3522&to=48.8738,2.2950&profile=car"
 
-# Use CH for sub-millisecond queries
+# Use the prebuilt CH for faster queries
 curl "http://localhost:5000/route?from=48.8566,2.3522&to=48.8738,2.2950&algorithm=ch"
 
 # Compute isochrone (10-minute reachability)
@@ -117,6 +117,12 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 **Query parameters:**
 - `profile` — `car` (default), `bicycle`, `pedestrian`, `truck`
 - `algorithm` — `astar` (default), `dijkstra`, `ch`
+- `concavity`, `/isochrone` only: `2.0` (default), zero or greater. Lower values hug the road
+  network more closely, infinity gives a convex boundary.
+
+**Authentication:** with `ITINERA_JWT_SECRET` set, every endpoint except `/health`, `/healthz`,
+`/readyz` and `/metrics` needs an `Authorization: Bearer` header holding a JWT signed with that
+secret. With the variable unset the server answers every request.
 
 **Network analysis:** points are given as `{"lat": ..., "lon": ...}` and snap to the nearest
 graph node. `/network/od-matrix` takes `origins` and `destinations`, `/network/closest-facility`

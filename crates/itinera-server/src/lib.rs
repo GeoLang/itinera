@@ -3,13 +3,10 @@
 //! HTTP API server for Itinera routing engine.
 //! Provides OSRM-compatible route, isochrone, and nearest endpoints.
 //!
-//! Enterprise features: Prometheus metrics, JWT auth, API key management,
-//! rate limiting, health/readiness probes.
+//! Enterprise features: Prometheus metrics, JWT auth, health/readiness probes.
 
-pub mod api_keys;
 pub mod auth;
 mod handlers;
-mod hex;
 pub mod metrics;
 mod state;
 

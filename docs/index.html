@@ -50,7 +50,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <div class="badges">
 <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
 <img src="https://img.shields.io/badge/Rust-2024-orange" alt="Rust">
-<img src="https://img.shields.io/badge/tests-101_passing-brightgreen" alt="Tests">
+<img src="https://img.shields.io/badge/tests-102_passing-brightgreen" alt="Tests">
 <img src="https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg" alt="CI">
 </div>
 <div class="hero">
@@ -61,8 +61,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 </div>
 <div class="stats">
 <div class="stat"><div class="num">6</div><div class="label">Rust crates</div></div>
-<div class="stat"><div class="num">84</div><div class="label">Unit tests</div></div>
-<div class="stat"><div class="num">&lt;1ms</div><div class="label">CH query time (target, not yet benchmarked)</div></div>
+<div class="stat"><div class="num">105</div><div class="label">Unit tests</div></div>
+<div class="stat"><div class="num">170 us</div><div class="label">CH query, measured on a 576-node grid</div></div>
 <div class="stat"><div class="num">0</div><div class="label">C dependencies in the routing core</div></div>
 </div>
 </div>
@@ -89,7 +89,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <li>PBF (.osm.pbf) via osmpbf crate</li>
 <li>Highway tag classification</li>
 <li>One-way detection</li>
-<li>Turn restriction parsing (stored, not enforced when routing)</li>
+<li>No-turn and only-turn restrictions from OSM relations, enforced by every search</li>
 </ul>
 </div>
 <div class="card">
@@ -114,7 +114,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <div class="card">
 <h3>🧭 Navigation</h3>
 <ul>
-<li>Turn-by-turn instructions (dijkstra and A* only, not CH)</li>
+<li>Turn-by-turn instructions on all three searches, CH included</li>
 <li>Bearing-based maneuver detection</li>
 <li>Road name annotations</li>
 <li>Depart / Arrive markers</li>
@@ -126,9 +126,11 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <ul>
 <li>Axum-based REST server</li>
 <li>Route / Nearest / Isochrone / Health</li>
+<li>Map matching, delivery stop ordering, network analysis</li>
 <li>Profile selection via query param</li>
 <li>Algorithm selection (dijkstra/astar/ch)</li>
 <li>CORS support for browsers</li>
+<li>Optional JWT auth behind ITINERA_JWT_SECRET</li>
 </ul>
 </div>
 </div>
@@ -148,17 +150,17 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><td>Zero C deps</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌ (JVM)</td><td class="check">✅ routing core only (server TLS/JWT pulls ring, aws-lc-sys)</td></tr>
 <tr><td>WASM target</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
 <tr><td>Single binary</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="check">✅</td></tr>
-<tr><td>Contraction Hierarchies</td><td class="check">✅</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅ (no turn-by-turn on this path)</td></tr>
+<tr><td>Contraction Hierarchies</td><td class="check">✅</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td></tr>
 <tr><td>A* search</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
 <tr><td>Isochrones</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Turn-by-turn</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅ (dijkstra and A* only)</td></tr>
+<tr><td>Turn-by-turn</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
 <tr><td>Multi-profile</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
 <tr><td>PBF import</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Turn restrictions</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td>parsed only, not enforced when routing</td></tr>
-<tr><td>Nearest node search</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td>R-tree built per query, not retained</td></tr>
+<tr><td>Turn restrictions</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
+<tr><td>Nearest node search</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅ R-tree built once and kept</td></tr>
 <tr><td>Binary graph format</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
 <tr><td>License</td><td>BSD-2</td><td>MIT</td><td>Apache-2</td><td><strong>AGPL-3.0</strong></td></tr>
-<tr><td>Lines of code</td><td>~150K</td><td>~200K</td><td>~300K</td><td><strong>~5K</strong></td></tr>
+<tr><td>Lines of code</td><td>~150K</td><td>~200K</td><td>~300K</td><td><strong>~9K</strong></td></tr>
 </tbody>
 </table>
 </div>
@@ -173,8 +175,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 │   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
 │   ├── itinera-match/    # HMM map matching of GPS traces, R-tree indexed
-│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match)
-│   └── itinera-cli/      # CLI binary (import, preprocess, serve, route)
+│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match, delivery, network analysis)
+│   └── itinera-cli/      # CLI binary (import, preprocess, serve, route, isochrone)
 └── docs/                 # This page</pre>
 </div>
 </section>
@@ -201,7 +203,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><td>GET</td><td><code>/metrics</code></td><td>Prometheus metrics</td></tr>
 </tbody>
 </table>
-<p style="margin-top:16px;color:var(--muted)"><strong>Query params:</strong> <code>profile</code> (car|bicycle|pedestrian|truck), <code>algorithm</code> (dijkstra|astar|ch)</p>
+<p style="margin-top:16px;color:var(--muted)"><strong>Query params:</strong> <code>profile</code> (car|bicycle|pedestrian|truck), <code>algorithm</code> (dijkstra|astar|ch), <code>concavity</code> on <code>/isochrone</code> (default 2.0, lower hugs the road network more closely)</p>
+<p style="margin-top:16px;color:var(--muted)"><strong>Auth:</strong> set <code>ITINERA_JWT_SECRET</code> and every endpoint except <code>/health</code>, <code>/healthz</code>, <code>/readyz</code> and <code>/metrics</code> requires a bearer JWT signed with it. Leave it unset and the server answers everything. The full request and response shapes are in <a href="./openapi.yaml">openapi.yaml</a>.</p>
 </div>
 </section>
 

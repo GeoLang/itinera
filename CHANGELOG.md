@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-02
+
+### Removed
+
+- `itinera_server::api_keys`, the in-memory API key store with its permissions,
+  token bucket and daily counter. Nothing called it, and authentication is the
+  bearer JWT behind `ITINERA_JWT_SECRET`. The `hex` module it was the only user
+  of goes with it, along with the `sha2` and `chrono` dependencies.
+
 ## [Unreleased] - 2026-08-31
 
 ### Added
