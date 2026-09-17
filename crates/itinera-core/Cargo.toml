@@ -17,7 +17,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 criterion.workspace = true
 itinera-osm = { workspace = true }
-bincode = "1"
+bincode = "3"
 
 [[bench]]
 name = "performance_targets"
