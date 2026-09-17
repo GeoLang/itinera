@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-16
+
+### Fixed
+
+- Public docs audited against the code. The README drops "Blazing fast" and the
+  claim that itinera brings the performance of C++ routing engines, which no
+  benchmark here measures, and the Contraction Hierarchies bullet now names the
+  576-node grid the 170 us came from instead of continental-scale networks. On
+  docs/index.html the unit test stat goes from 105 to 102, matching the
+  attribute count and the badge, and the line count from ~9K to ~8K.
+
 ## [Unreleased] - 2026-09-02
 
 ### Removed

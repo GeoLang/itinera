@@ -2,7 +2,7 @@
 
 **Pure-Rust routing engine** — a modern alternative to OSRM, Valhalla, and GraphHopper.
 
-Routing core with no C dependencies. Single binary. Blazing fast.
+Routing core with no C dependencies. Single binary.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
@@ -27,15 +27,12 @@ Routing core with no C dependencies. Single binary. Blazing fast.
 | Turn-by-turn | ✅ | ✅ | ✅ | ✅ |
 | Isochrones | ❌ (plugin) | ✅ | ✅ | ✅ |
 
-**Itinera** brings the performance of C++ routing engines with Rust's safety guarantees.
-No garbage collector pauses. No segfaults. No dependency hell.
-
 ---
 
 ## Features
 
 - **Dijkstra & A\*** — Classic shortest-path algorithms with haversine heuristic
-- **Contraction Hierarchies** — Fast queries on continental-scale networks (170 us on a 576-node grid, see Performance)
+- **Contraction Hierarchies** — Bidirectional query over a prebuilt hierarchy, measured at 170 us on a 576-node grid, see Performance
 - **Isochrones** — Reachability polygons for travel-time analysis
 - **OSM Import** — Parse OpenStreetMap XML and PBF into a compact routing graph
 - **Turn-by-turn** — Navigation instructions with maneuver detection (bearing-based)
