@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-20
+
+### Added
+
+- `Graph::coverage`, the area the loaded network answers for, and
+  `Graph::snap_within_coverage`, the nearest-node lookup that respects it. A PBF
+  import reads the `HeaderBBox` out of the OSMHeader blob and an XML import
+  reads the `<bounds>` element, both landing in `Graph::declared_bounds`, so
+  graph.bin carries the bounds the file itself declares. A file with no bounds,
+  which is what osmium writes without `--set-bounds`, falls back to the extent
+  of the graph's own nodes grown by the longest edge in the graph, computed once
+  on first use. A point within one edge of the outermost node can still sit on a
+  road of this network, which is what coverage is asking.
+
+### Fixed
+
+- Route, isochrone, od-matrix and closest-facility refuse a point outside the
+  coverage instead of snapping it to whatever node is nearest. Against a Monaco
+  extract, `GET /isochrone?lat=43.647&lon=-79.41&max_seconds=600` returned the
+  Monaco isochrone, 1292 nodes around 43.72, 7.41. It now answers 400 with
+  "origin 43.647, -79.410 is outside the loaded road network", followed by the
+  coverage as "(lon <min> to <max>, lat <min> to <max>)". A point inside the
+  coverage snaps to the nearest node as before, at any distance. `/nearest` is
+  unchanged and still answers for any point, reporting how far the node is.
+- `itinera route` and `itinera isochrone` refuse an out-of-coverage point with
+  that same message, where they used to snap to the nearest node anywhere in the
+  graph.
+
+### Changed
+
+- graph.bin gained the declared bounds field, so a file written by an earlier
+  build fails to load with "io error: unexpected end of file". Rebuild it with
+  `itinera import`.
+
 ## [Unreleased] - 2026-09-16
 
 ### Fixed

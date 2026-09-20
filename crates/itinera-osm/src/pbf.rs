@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use osmpbf::{Element, ElementReader};
+use osmpbf::{BlobDecode, BlobReader, Element, ElementReader, HeaderBBox};
 
-use itinera_graph::{Coord, Edge, Graph, Node, NodeId, TurnRestriction};
+use itinera_graph::{BoundingBox, Coord, Edge, Graph, Node, NodeId, TurnRestriction};
 
 use crate::error::OsmError;
 use crate::parser::ImportStats;
@@ -11,6 +11,7 @@ use crate::tags::{highway_to_road_class, is_oneway};
 
 /// Parse an OSM PBF file and build a routing graph.
 pub fn parse_pbf(path: &Path) -> Result<(Graph, ImportStats), OsmError> {
+    let declared_bounds = read_declared_bounds(path)?;
     let reader = ElementReader::from_path(path)
         .map_err(|e| OsmError::Io(std::io::Error::other(e.to_string())))?;
 
@@ -213,6 +214,7 @@ pub fn parse_pbf(path: &Path) -> Result<(Graph, ImportStats), OsmError> {
 
     stats.edges_created = edges.len();
     let mut graph = Graph::build(nodes, edges);
+    graph.declared_bounds = declared_bounds;
 
     // Add turn restrictions
     for restriction in &restrictions {
@@ -237,6 +239,25 @@ pub fn parse_pbf(path: &Path) -> Result<(Graph, ImportStats), OsmError> {
     Ok((graph, stats))
 }
 
+fn read_declared_bounds(path: &Path) -> Result<Option<BoundingBox>, OsmError> {
+    let mut blobs = BlobReader::from_path(path).map_err(to_io_error)?;
+    let Some(blob) = blobs.next() else {
+        return Ok(None);
+    };
+    match blob.map_err(to_io_error)?.decode().map_err(to_io_error)? {
+        BlobDecode::OsmHeader(header) => Ok(header.bbox().as_ref().map(bbox_from_header)),
+        _ => Ok(None),
+    }
+}
+
+fn bbox_from_header(bbox: &HeaderBBox) -> BoundingBox {
+    BoundingBox::from_corners(bbox.top, bbox.left, bbox.bottom, bbox.right)
+}
+
+fn to_io_error(error: osmpbf::Error) -> OsmError {
+    OsmError::Io(std::io::Error::other(error.to_string()))
+}
+
 struct PbfWay {
     way_id: i64,
     node_refs: Vec<i64>,
@@ -249,4 +270,118 @@ struct PbfRestriction {
     to_way: i64,
     via_node: i64,
     restriction_type: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MONACO_LEFT: f64 = 7.40;
+    const MONACO_RIGHT: f64 = 7.45;
+    const MONACO_TOP: f64 = 43.76;
+    const MONACO_BOTTOM: f64 = 43.71;
+
+    fn push_varint(mut value: u64, out: &mut Vec<u8>) {
+        loop {
+            let byte = u8::try_from(value & 0x7f).unwrap();
+            value >>= 7;
+            if value == 0 {
+                out.push(byte);
+                return;
+            }
+            out.push(byte | 0x80);
+        }
+    }
+
+    fn varint_field(field_number: u64, value: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        push_varint(field_number << 3, &mut bytes);
+        push_varint(value, &mut bytes);
+        bytes
+    }
+
+    fn zigzag_field(field_number: u64, degrees: f64) -> Vec<u8> {
+        let nanodegrees = (degrees * 1e9) as i64;
+        varint_field(
+            field_number,
+            ((nanodegrees << 1) ^ (nanodegrees >> 63)) as u64,
+        )
+    }
+
+    fn length_delimited_field(field_number: u64, value: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        push_varint((field_number << 3) | 2, &mut bytes);
+        push_varint(value.len() as u64, &mut bytes);
+        bytes.extend_from_slice(value);
+        bytes
+    }
+
+    // a PBF file holding nothing but an OSMHeader blob
+    fn header_only_pbf(with_bbox: bool) -> Vec<u8> {
+        let mut header_block = Vec::new();
+        if with_bbox {
+            let mut bbox = zigzag_field(1, MONACO_LEFT);
+            bbox.extend(zigzag_field(2, MONACO_RIGHT));
+            bbox.extend(zigzag_field(3, MONACO_TOP));
+            bbox.extend(zigzag_field(4, MONACO_BOTTOM));
+            header_block.extend(length_delimited_field(1, &bbox));
+        }
+        header_block.extend(length_delimited_field(4, b"OsmSchema-V0.6"));
+
+        let mut blob = length_delimited_field(1, &header_block);
+        blob.extend(varint_field(2, header_block.len() as u64));
+
+        let mut blob_header = length_delimited_field(1, b"OSMHeader");
+        blob_header.extend(varint_field(3, blob.len() as u64));
+
+        let mut file = Vec::new();
+        file.extend((blob_header.len() as u32).to_be_bytes());
+        file.extend(blob_header);
+        file.extend(blob);
+        file
+    }
+
+    fn parse_written_pbf(name: &str, contents: &[u8]) -> Graph {
+        let path =
+            std::env::temp_dir().join(format!("itinera-{}-{name}.osm.pbf", std::process::id()));
+        std::fs::write(&path, contents).unwrap();
+        let (graph, _) = parse_pbf(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        graph
+    }
+
+    #[test]
+    fn the_header_bbox_becomes_the_graph_coverage() {
+        let graph = parse_written_pbf("with-bbox", &header_only_pbf(true));
+
+        let coverage = graph.coverage().unwrap();
+        assert!((coverage.min_lon - MONACO_LEFT).abs() < 1e-9);
+        assert!((coverage.max_lon - MONACO_RIGHT).abs() < 1e-9);
+        assert!((coverage.min_lat - MONACO_BOTTOM).abs() < 1e-9);
+        assert!((coverage.max_lat - MONACO_TOP).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_header_without_a_bbox_leaves_the_graph_without_one() {
+        let graph = parse_written_pbf("no-bbox", &header_only_pbf(false));
+
+        assert!(graph.declared_bounds.is_none());
+    }
+
+    #[test]
+    fn a_flipped_header_bbox_still_sorts_into_min_and_max() {
+        let flipped = HeaderBBox {
+            left: 7.45,
+            right: 7.40,
+            top: 43.71,
+            bottom: 43.76,
+        };
+
+        let bbox = bbox_from_header(&flipped);
+
+        assert!((bbox.min_lon - 7.40).abs() < 1e-9);
+        assert!((bbox.max_lon - 7.45).abs() < 1e-9);
+        assert!((bbox.min_lat - 43.71).abs() < 1e-9);
+        assert!((bbox.max_lat - 43.76).abs() < 1e-9);
+    }
 }

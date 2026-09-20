@@ -193,8 +193,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let src_coord = parse_coord(&from)?;
             let dst_coord = parse_coord(&to)?;
 
-            let source = g.nearest_node(src_coord).ok_or("no node near source")?;
-            let target = g.nearest_node(dst_coord).ok_or("no node near target")?;
+            let source = g.snap_within_coverage("origin", src_coord)?;
+            let target = g.snap_within_coverage("destination", dst_coord)?;
 
             let start = Instant::now();
             let route = match algorithm.as_str() {
@@ -230,7 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let g = itinera_graph::Graph::from_bytes(&data)?;
 
             let coord = parse_coord(&center)?;
-            let source = g.nearest_node(coord).ok_or("no node near center")?;
+            let source = g.snap_within_coverage("center", coord)?;
 
             let start = Instant::now();
             let result = itinera_core::isochrone(

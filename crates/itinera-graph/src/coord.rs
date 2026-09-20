@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) const EARTH_RADIUS_M: f64 = 6_371_000.0;
+
 /// WGS84 coordinate.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Coord {
@@ -16,7 +18,6 @@ impl Coord {
     /// Haversine distance in meters.
     #[must_use]
     pub fn distance_to(self, other: Self) -> f64 {
-        const R: f64 = 6_371_000.0;
         let d_lat = (other.lat - self.lat).to_radians();
         let d_lon = (other.lon - self.lon).to_radians();
         let lat1 = self.lat.to_radians();
@@ -24,7 +25,7 @@ impl Coord {
 
         let a = (d_lat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
         let c = 2.0 * a.sqrt().asin();
-        R * c
+        EARTH_RADIUS_M * c
     }
 
     /// Bearing from self to other in degrees [0, 360).

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::BufRead;
 
-use itinera_graph::{Coord, Edge, Graph, Node, NodeId, TurnRestriction};
+use itinera_graph::{BoundingBox, Coord, Edge, Graph, Node, NodeId, TurnRestriction};
 
 use crate::error::OsmError;
 use crate::tags::{highway_to_road_class, is_oneway};
@@ -25,6 +25,7 @@ pub struct OsmImporter {
     ways: Vec<OsmWay>,
     /// Parsed turn restrictions from relations.
     restrictions: Vec<OsmRestriction>,
+    declared_bounds: Option<BoundingBox>,
 }
 
 struct OsmWay {
@@ -48,6 +49,7 @@ impl OsmImporter {
             osm_nodes: HashMap::new(),
             ways: Vec::new(),
             restrictions: Vec::new(),
+            declared_bounds: None,
         }
     }
 
@@ -62,8 +64,11 @@ impl OsmImporter {
             let line = line?;
             let trimmed = line.trim();
 
+            if trimmed.starts_with("<bounds ") {
+                self.declared_bounds = parse_bounds(trimmed);
+            }
             // Parse <node> elements
-            if trimmed.starts_with("<node ") {
+            else if trimmed.starts_with("<node ") {
                 if let Some((id, lat, lon)) = parse_node_attrs(trimmed) {
                     self.osm_nodes.insert(id, Coord::new(lat, lon));
                 }
@@ -277,6 +282,7 @@ impl OsmImporter {
 
         stats.edges_created = edges.len();
         let mut graph = Graph::build(nodes, edges);
+        graph.declared_bounds = self.declared_bounds;
 
         // Add turn restrictions
         for restriction in &self.restrictions {
@@ -357,6 +363,17 @@ fn parse_node_attrs(line: &str) -> Option<(i64, f64, f64)> {
     Some((id, lat, lon))
 }
 
+// <bounds minlat=".." minlon=".." maxlat=".." maxlon=".."/>
+fn parse_bounds(line: &str) -> Option<BoundingBox> {
+    let corner = |attr: &str| extract_attr(line, attr)?.parse::<f64>().ok();
+    Some(BoundingBox::from_corners(
+        corner("minlat")?,
+        corner("minlon")?,
+        corner("maxlat")?,
+        corner("maxlon")?,
+    ))
+}
+
 /// Parse ref from <nd ref="..."/>.
 fn parse_nd_ref(line: &str) -> Option<i64> {
     extract_attr(line, "ref")?.parse::<i64>().ok()
@@ -415,6 +432,47 @@ mod tests {
         assert!(stats.nodes_in_graph >= 3);
         assert!(stats.edges_created >= 3); // 2 forward from way1 (bidirectional=4) + 1 forward from motorway
         assert!(graph.num_nodes() >= 3);
+    }
+
+    const BOUNDED_OSM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <bounds minlat="48.8000" minlon="2.2000" maxlat="48.9000" maxlon="2.4000"/>
+  <node id="1" lat="48.8566" lon="2.3522"/>
+  <node id="2" lat="48.8606" lon="2.3376"/>
+  <way id="100">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <tag k="highway" v="primary"/>
+  </way>
+</osm>"#;
+
+    fn graph_from(xml: &str) -> Graph {
+        let mut importer = OsmImporter::new();
+        importer.parse_xml(xml.as_bytes()).unwrap();
+        importer.build_graph().unwrap().0
+    }
+
+    #[test]
+    fn the_bounds_element_becomes_the_graph_coverage() {
+        let coverage = graph_from(BOUNDED_OSM).coverage().unwrap();
+
+        assert_eq!(coverage.min_lat, 48.8);
+        assert_eq!(coverage.max_lat, 48.9);
+        assert_eq!(coverage.min_lon, 2.2);
+        assert_eq!(coverage.max_lon, 2.4);
+    }
+
+    #[test]
+    fn a_file_without_bounds_falls_back_to_the_nodes() {
+        let graph = graph_from(SAMPLE_OSM);
+
+        assert!(graph.declared_bounds.is_none());
+        assert!(
+            graph
+                .coverage()
+                .unwrap()
+                .contains(Coord::new(48.8566, 2.3522))
+        );
     }
 
     #[test]

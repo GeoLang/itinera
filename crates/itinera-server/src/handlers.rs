@@ -145,12 +145,12 @@ async fn route_handler(
 
     let source = state
         .graph
-        .nearest_node(from)
-        .ok_or_else(|| bad_request("no node found near source".to_string()))?;
+        .snap_within_coverage("origin", from)
+        .map_err(bad_request)?;
     let target = state
         .graph
-        .nearest_node(to)
-        .ok_or_else(|| bad_request("no node found near target".to_string()))?;
+        .snap_within_coverage("destination", to)
+        .map_err(bad_request)?;
 
     let algo = params.algorithm.as_deref().unwrap_or("astar");
 
@@ -260,8 +260,8 @@ async fn isochrone_handler(
 
     let source = state
         .graph
-        .nearest_node(coord)
-        .ok_or_else(|| bad_request("graph is empty".to_string()))?;
+        .snap_within_coverage("origin", coord)
+        .map_err(bad_request)?;
 
     let result = isochrone(
         &state.graph,
@@ -640,8 +640,8 @@ async fn network_od_matrix(
     check_points("destinations", &req.destinations)?;
     check_pairs(req.origins.len() * req.destinations.len())?;
 
-    let origins = snap_points(&state.graph, &req.origins)?;
-    let destinations = snap_points(&state.graph, &req.destinations)?;
+    let origins = snap_points(&state.graph, "origin", &req.origins)?;
+    let destinations = snap_points(&state.graph, "destination", &req.destinations)?;
     let origin_index = index_by_node(&origins);
     let destination_index = index_by_node(&destinations);
 
@@ -672,8 +672,8 @@ async fn network_closest_facility(
     check_points("facilities", &req.facilities)?;
     check_pairs(req.demand_points.len() * req.facilities.len())?;
 
-    let demand = snap_points(&state.graph, &req.demand_points)?;
-    let facilities = snap_points(&state.graph, &req.facilities)?;
+    let demand = snap_points(&state.graph, "demand point", &req.demand_points)?;
+    let facilities = snap_points(&state.graph, "facility", &req.facilities)?;
     let demand_index = index_by_node(&demand);
     let facility_index = index_by_node(&facilities);
 
@@ -773,14 +773,15 @@ fn resolve_top_k(top_k: Option<usize>) -> Result<usize, (StatusCode, Json<ErrorR
 
 fn snap_points(
     graph: &Graph,
+    label: &str,
     points: &[Point],
 ) -> Result<Vec<NodeId>, (StatusCode, Json<ErrorResponse>)> {
     points
         .iter()
         .map(|p| {
             graph
-                .nearest_node(Coord::new(p.lat, p.lon))
-                .ok_or_else(|| bad_request(format!("no node found near {},{}", p.lat, p.lon)))
+                .snap_within_coverage(label, Coord::new(p.lat, p.lon))
+                .map_err(bad_request)
         })
         .collect()
 }

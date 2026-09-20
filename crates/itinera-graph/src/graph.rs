@@ -4,9 +4,13 @@ use rstar::{RTree, primitives::GeomWithData};
 use serde::{Deserialize, Serialize};
 
 use crate::turn::RestrictionType;
-use crate::{Coord, Edge, EdgeId, Node, NodeId, SpeedProfile, TurnRestriction};
+use crate::{BoundingBox, Coord, Edge, EdgeId, Node, NodeId, SpeedProfile, TurnRestriction};
 
 type IndexedPoint = GeomWithData<[f64; 2], u32>;
+
+fn empty_network() -> String {
+    "the loaded road network is empty".to_string()
+}
 
 /// Compressed Sparse Row (CSR) graph for fast adjacency traversal.
 ///
@@ -30,9 +34,12 @@ pub struct Graph {
     pub rev_offsets: Vec<u32>,
     /// Turn restrictions indexed by via_node.
     pub restrictions: Vec<TurnRestriction>,
+    pub declared_bounds: Option<BoundingBox>,
     /// Spatial index for `nearest_node`. Built once; skipped in serde.
     #[serde(skip)]
     rtree: OnceLock<RTree<IndexedPoint>>,
+    #[serde(skip)]
+    node_coverage: OnceLock<Option<BoundingBox>>,
 }
 
 impl Clone for Graph {
@@ -44,7 +51,9 @@ impl Clone for Graph {
             rev_edge_indices: self.rev_edge_indices.clone(),
             rev_offsets: self.rev_offsets.clone(),
             restrictions: self.restrictions.clone(),
+            declared_bounds: self.declared_bounds,
             rtree: OnceLock::new(),
+            node_coverage: OnceLock::new(),
         }
     }
 }
@@ -105,9 +114,12 @@ impl Graph {
             rev_edge_indices,
             rev_offsets,
             restrictions: Vec::new(),
+            declared_bounds: None,
             rtree: OnceLock::new(),
+            node_coverage: OnceLock::new(),
         };
         let _ = graph.spatial_index();
+        let _ = graph.coverage();
         graph
     }
 
@@ -191,6 +203,39 @@ impl Graph {
         self.spatial_index()
             .nearest_neighbor(&[coord.lat, coord.lon])
             .map(|p| NodeId(p.data))
+    }
+
+    #[must_use]
+    pub fn coverage(&self) -> Option<BoundingBox> {
+        if self.declared_bounds.is_some() {
+            return self.declared_bounds;
+        }
+        *self.node_coverage.get_or_init(|| {
+            let extent = BoundingBox::enclosing(self.nodes.iter().map(|n| n.coord))?;
+            // a point within one edge of the outermost node can still sit on a road of this network
+            let longest_edge_m = self
+                .edges
+                .iter()
+                .map(|e| e.distance_m)
+                .fold(0.0_f64, f64::max);
+            Some(extent.grown_by(longest_edge_m))
+        })
+    }
+
+    pub fn snap_within_coverage(&self, label: &str, coord: Coord) -> Result<NodeId, String> {
+        let coverage = self.coverage().ok_or_else(empty_network)?;
+        if !coverage.contains(coord) {
+            return Err(format!(
+                "{label} {:.3}, {:.3} is outside the loaded road network (lon {:.2} to {:.2}, lat {:.2} to {:.2})",
+                coord.lat,
+                coord.lon,
+                coverage.min_lon,
+                coverage.max_lon,
+                coverage.min_lat,
+                coverage.max_lat
+            ));
+        }
+        self.nearest_node(coord).ok_or_else(empty_network)
     }
 
     fn spatial_index(&self) -> &RTree<IndexedPoint> {
@@ -450,5 +495,70 @@ mod tests {
         let weight = g.edge_weight(edge, &profile);
         // 1200m at 50 km/h = 1200 * 3.6 / 50 = 86.4 seconds
         assert!((weight - 86.4).abs() < 0.1);
+    }
+
+    #[test]
+    fn coverage_grows_the_node_extent_by_the_longest_edge() {
+        let graph = sample_graph();
+        let extent = BoundingBox::enclosing(graph.nodes.iter().map(|n| n.coord)).unwrap();
+
+        let coverage = graph.coverage().unwrap();
+
+        // 5000.0 is the longest edge in sample_graph
+        assert_eq!(coverage, extent.grown_by(5000.0));
+        assert!(!extent.contains(Coord::new(48.8900, 2.3000)));
+        assert!(coverage.contains(Coord::new(48.8900, 2.3000)));
+    }
+
+    #[test]
+    fn a_declared_bounds_is_the_coverage_as_it_stands() {
+        let mut graph = sample_graph();
+        let declared = BoundingBox::from_corners(48.85, 2.29, 48.88, 2.36);
+        graph.declared_bounds = Some(declared);
+
+        assert_eq!(graph.coverage().unwrap(), declared);
+    }
+
+    #[test]
+    fn snapping_outside_the_coverage_names_the_point_and_the_bounds() {
+        let graph = sample_graph();
+
+        let error = graph
+            .snap_within_coverage("origin", Coord::new(43.647, -79.41))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            "origin 43.647, -79.410 is outside the loaded road network \
+             (lon 2.23 to 2.42, lat 48.81 to 48.92)"
+        );
+    }
+
+    #[test]
+    fn snapping_inside_the_coverage_returns_the_nearest_node() {
+        let graph = sample_graph();
+
+        let node = graph
+            .snap_within_coverage("origin", Coord::new(48.8567, 2.3523))
+            .unwrap();
+
+        assert_eq!(node, NodeId(0));
+    }
+
+    #[test]
+    fn a_graph_bin_written_before_the_declared_bounds_field_is_rejected() {
+        let graph = sample_graph();
+        let old_format = bincode::serialize(&(
+            &graph.nodes,
+            &graph.edges,
+            &graph.offsets,
+            &graph.rev_edge_indices,
+            &graph.rev_offsets,
+            &graph.restrictions,
+        ))
+        .unwrap();
+
+        let error = Graph::from_bytes(&old_format).unwrap_err();
+        assert!(error.to_string().contains("end of file"), "{error}");
     }
 }
