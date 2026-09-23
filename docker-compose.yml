@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
     environment:
       - RUST_LOG=info,itinera=debug
       - ITINERA_JWT_SECRET=change-me-in-production

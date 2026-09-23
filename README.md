@@ -78,7 +78,7 @@ cp /path/to/region.osm.pbf data/region.osm.pbf
 docker run -p 3000:3000 -v "$PWD/data:/data" ghcr.io/geolang/itinera:latest
 ```
 
-`docker compose up -d` builds the image, mounts `./data` read-only and adds Prometheus on port 9090. With the read-only mount the import cannot run, so put `graph.bin` in `./data` first.
+`docker compose up -d` builds the image, mounts `./data` and adds Prometheus on port 9090. With `./data/region.osm.pbf` in place and no `graph.bin`, the first start imports the extract into `./data/graph.bin`.
 
 ## API Endpoints
 
