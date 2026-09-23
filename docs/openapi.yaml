@@ -2,7 +2,12 @@ openapi: 3.1.0
 info:
   title: Itinera Routing API
   version: 0.1.0
-  description: Turn-by-turn routing engine with contraction hierarchies.
+  description: >-
+    Routing, isochrones, map matching and network analysis over a road graph
+    imported from OpenStreetMap. /route, /isochrone, /network/od-matrix and
+    /network/closest-facility answer 400 for a point outside the loaded network,
+    which is the bounds declared in the OSM file, or else the node extent grown by
+    the longest edge.
   license:
     name: AGPL-3.0-or-later
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -22,7 +27,7 @@ paths:
   /route:
     get:
       summary: Calculate route
-      description: Find the fastest path between two coordinates.
+      description: Find the fastest path between two coordinates, with turn-by-turn steps.
       parameters:
         - name: from
           in: query
@@ -48,7 +53,9 @@ paths:
             type: string
             enum: [dijkstra, astar, ch]
             default: astar
-          description: "`ch` requires a preprocessed contraction hierarchy"
+          description: >-
+            `ch` needs the server started with `--ch`, and gives correct times only
+            for the profile the hierarchy was built with. Any other value runs `astar`.
       responses:
         '200':
           description: Route result
@@ -57,7 +64,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/RouteResponse'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Bad coordinate or profile, a point outside the network, or `ch` without a hierarchy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -70,7 +81,7 @@ paths:
   /nearest:
     get:
       summary: Snap to nearest node
-      description: Find the nearest node on the road network.
+      description: Find the nearest node on the road network. Unlike the other endpoints, a point outside the network is not refused.
       parameters:
         - name: lat
           in: query
@@ -124,6 +135,14 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/Profile'
+        - name: concavity
+          in: query
+          schema:
+            type: number
+            format: double
+            default: 2.0
+            minimum: 0
+          description: Lower values follow the road network more closely, infinity gives a convex hull
       responses:
         '200':
           description: Reachable area
@@ -136,7 +155,7 @@ paths:
                     type: integer
                   boundary:
                     type: array
-                    description: Convex hull of the reachable nodes
+                    description: Concave hull of the reachable nodes, as an open ring
                     items:
                       $ref: '#/components/schemas/LatLonPair'
         '400':
@@ -408,7 +427,7 @@ paths:
                         duration_s:
                           type: number
         '400':
-          description: Empty or oversized input (max 100 points per list, 2500 pairs)
+          description: Empty or oversized input (max 100 points per list, 2500 pairs), or a point outside the network
           content:
             application/json:
               schema:
@@ -472,7 +491,7 @@ paths:
                   unreachable:
                     type: integer
         '400':
-          description: Empty or oversized input (max 100 points per list, 2500 pairs)
+          description: Empty or oversized input (max 100 points per list, 2500 pairs), or a point outside the network
           content:
             application/json:
               schema:
@@ -603,7 +622,8 @@ components:
       bearerFormat: JWT
       description: >-
         Enforced only when the server is started with ITINERA_JWT_SECRET set,
-        otherwise every route is open.
+        otherwise every route is open. The token is HS256 signed with that secret
+        and must carry sub, exp and role claims.
 
   responses:
     BadRequest:
@@ -619,8 +639,10 @@ components:
   schemas:
     Profile:
       type: string
-      enum: [car, bicycle, pedestrian, truck]
-      default: car
+      enum: [car, bicycle, bike, pedestrian, foot, walk, truck, hgv]
+      description: >-
+        bike, foot and walk, and hgv are aliases. Defaults to the `--profile` the server
+        was started with, which defaults to car.
 
     Point:
       type: object
@@ -701,7 +723,6 @@ components:
             $ref: '#/components/schemas/LatLonPair'
         steps:
           type: array
-          description: Empty for the `ch` algorithm
           items:
             $ref: '#/components/schemas/RouteStep'
 

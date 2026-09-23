@@ -1,51 +1,28 @@
-# 🛣️ Itinera
+# Itinera
 
-**Pure-Rust routing engine** — a modern alternative to OSRM, Valhalla, and GraphHopper.
+A routing engine in Rust for OpenStreetMap road networks: shortest paths, contraction hierarchies, isochrones, map matching and network analysis over HTTP.
 
-Routing core with no C dependencies. Single binary.
+The routing crates have no C dependencies. The server's JWT stack pulls in `ring` and `aws-lc-sys`. Everything ships as one `itinera` binary.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
-![Tests](https://img.shields.io/badge/tests-102_passing-brightgreen)
 ![CI](https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg)
 
 [Documentation](https://geolang.github.io/itinera/) · [GitHub](https://github.com/GeoLang/itinera)
 
----
-
-## Why Itinera?
-
-| | OSRM | Valhalla | GraphHopper | **Itinera** |
-|--|------|----------|-------------|-------------|
-| Language | C++ | C++ | Java | **Rust** |
-| Memory safety | ❌ | ❌ | ✅ (GC) | ✅ (compile-time) |
-| C dependencies | Many | Many | JVM | **None in the routing core** (the server's TLS/JWT stack pulls `ring` and `aws-lc-sys`) |
-| WASM support | ❌ | ❌ | ❌ | ❌ |
-| Single binary | ❌ | ❌ | ❌ | ✅ |
-| License | BSD-2 | MIT | Apache-2 | AGPL-3.0 |
-| Contraction Hierarchies | ✅ | ❌ | ✅ | ✅ |
-| Turn-by-turn | ✅ | ✅ | ✅ | ✅ |
-| Isochrones | ❌ (plugin) | ✅ | ✅ | ✅ |
-
----
-
 ## Features
 
-- **Dijkstra & A\*** — Classic shortest-path algorithms with haversine heuristic
-- **Contraction Hierarchies** — Bidirectional query over a prebuilt hierarchy, measured at 170 us on a 576-node grid, see Performance
-- **Isochrones** — Reachability polygons for travel-time analysis
-- **OSM Import** — Parse OpenStreetMap XML and PBF into a compact routing graph
-- **Turn-by-turn** — Navigation instructions with maneuver detection (bearing-based)
-- **Multi-modal** — Car, bicycle, pedestrian, truck routing profiles
-- **HTTP API** — REST interface with CORS support
-- **CSR Graph** — Cache-friendly Compressed Sparse Row with reverse index
-- **R-tree spatial index** — Fast nearest-node queries
-- **Binary serialization** — Compact bincode format for instant graph loading
-- **Turn restrictions** — No-turn / only-turn parsed from OSM relations and enforced by Dijkstra, A*, and Contraction Hierarchies
-- **Network analysis** — Connected components, OD matrix, closest facility, betweenness centrality
-- **Map matching**: HMM snapping of GPS traces onto the loaded routing graph
-
----
+- **Dijkstra and A\***: A\* uses a haversine heuristic.
+- **Contraction hierarchies**: bidirectional query over a hierarchy prebuilt with `itinera preprocess`, unpacked to a full path with turn-by-turn steps.
+- **Turn restrictions**: no-turn and only-turn relations from OSM, enforced by Dijkstra, A\* and the hierarchy.
+- **Isochrones**: concave hull around the nodes reachable within a time budget.
+- **OSM import**: XML and PBF into a compressed sparse row graph with a reverse index, saved with bincode.
+- **Profiles**: car, bicycle, pedestrian and truck speed tables, see [Routing Profiles](#routing-profiles).
+- **Turn-by-turn**: maneuvers from the bearing change at each node.
+- **Map matching**: HMM snapping of GPS traces onto the loaded graph.
+- **Network analysis**: connected components, OD matrix, closest facility, approximate betweenness centrality.
+- **Delivery stop ordering**: nearest neighbour plus 2-opt over great-circle distances.
+- **Coverage check**: a route, isochrone or network analysis point outside the loaded network is refused with a message naming the network bounds. The bounds are the ones declared in the OSM file, otherwise the node extent grown by the longest edge.
 
 ## Architecture
 
@@ -53,53 +30,62 @@ Routing core with no C dependencies. Single binary.
 itinera/
 ├── crates/
 │   ├── itinera-graph/    # CSR graph, nodes, edges, profiles, R-tree
-│   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers
+│   ├── itinera-core/     # Dijkstra, A*, CH, isochrones, maneuvers, network analysis, stop ordering
 │   ├── itinera-osm/      # OSM XML + PBF import, tag parsing
-│   ├── itinera-match/    # HMM map matching of GPS traces, R-tree indexed
-│   ├── itinera-server/   # Axum HTTP API (route, nearest, isochrone, match, delivery, network analysis)
-│   └── itinera-cli/      # CLI binary (import, preprocess, serve, route, isochrone)
-└── docs/                 # GitHub Pages documentation
+│   ├── itinera-match/    # HMM map matching of GPS traces
+│   ├── itinera-server/   # Axum HTTP API
+│   └── itinera-cli/      # the itinera binary: import, preprocess, serve, route, isochrone
+└── docs/                 # GitHub Pages site and OpenAPI spec
 ```
-
----
 
 ## Quick Start
 
 ```bash
-# Build from source
-git clone https://github.com/GeoLang/itinera.git
-cd itinera && cargo build --release
+cargo install --path crates/itinera-cli
 
-# Import OSM data (supports .osm and .osm.pbf)
+# .pbf is read as PBF, anything else as OSM XML
 itinera import --input region.osm.pbf --output graph.bin
 
-# Pre-build Contraction Hierarchies
+# optional, needed for algorithm=ch
 itinera preprocess --graph graph.bin --output ch.bin --profile car
 
-# Start the routing server
 itinera serve --bind 0.0.0.0:5000 --graph graph.bin --ch ch.bin
 
-# Query a route
 curl "http://localhost:5000/route?from=48.8566,2.3522&to=48.8738,2.2950&profile=car"
-
-# Use the prebuilt CH for faster queries
 curl "http://localhost:5000/route?from=48.8566,2.3522&to=48.8738,2.2950&algorithm=ch"
-
-# Compute isochrone (10-minute reachability)
 curl "http://localhost:5000/isochrone?lat=48.8566&lon=2.3522&max_seconds=600"
-
-# Find nearest road node
 curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 ```
 
----
+`serve` defaults to `--bind 0.0.0.0:5000 --graph graph.bin --profile car`. A hierarchy holds travel times for the profile it was built with, so `algorithm=ch` with a different `profile` gives wrong durations.
+
+The CLI also answers single queries without a server:
+
+```bash
+itinera route --from 48.8566,2.3522 --to 48.8738,2.2950 --graph graph.bin
+itinera isochrone --center 48.8566,2.3522 --max-seconds 600 --graph graph.bin
+```
+
+`route` takes `--algorithm astar|dijkstra`. `isochrone` prints a GeoJSON Feature.
+
+### Docker
+
+Tagged releases publish `ghcr.io/geolang/itinera` and prebuilt binaries for Linux and macOS on x86_64 and aarch64. The image serves `/data/graph.bin` on port 3000. If the graph is missing and `/data/region.osm.pbf` exists, it imports that first, so `/data` must be writable.
+
+```bash
+mkdir -p data
+cp /path/to/region.osm.pbf data/region.osm.pbf
+docker run -p 3000:3000 -v "$PWD/data:/data" ghcr.io/geolang/itinera:latest
+```
+
+`docker compose up -d` builds the image, mounts `./data` read-only and adds Prometheus on port 9090. With the read-only mount the import cannot run, so put `graph.bin` in `./data` first.
 
 ## API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /route?from=lat,lon&to=lat,lon` | Compute shortest route |
-| `GET /nearest?lat=...&lon=...` | Find nearest graph node |
+| `GET /route?from=lat,lon&to=lat,lon` | Shortest route with turn-by-turn steps |
+| `GET /nearest?lat=...&lon=...` | Nearest graph node |
 | `GET /isochrone?lat=...&lon=...&max_seconds=...` | Reachability polygon |
 | `POST /match` | Snap a GPS trace to the road network |
 | `POST /delivery/optimize` | Stop ordering over great-circle distances at a fixed 30 km/h, not road distances |
@@ -111,22 +97,16 @@ curl "http://localhost:5000/nearest?lat=48.8566&lon=2.3522"
 | `GET /healthz`, `GET /readyz` | Liveness and readiness probes |
 | `GET /metrics` | Prometheus metrics |
 
+The full request and response shapes are in [docs/openapi.yaml](docs/openapi.yaml).
+
 **Query parameters:**
-- `profile` — `car` (default), `bicycle`, `pedestrian`, `truck`
-- `algorithm` — `astar` (default), `dijkstra`, `ch`
-- `concavity`, `/isochrone` only: `2.0` (default), zero or greater. Lower values hug the road
-  network more closely, infinity gives a convex boundary.
+- `profile`: `car`, `bicycle`, `pedestrian`, `truck`. Defaults to the server's `--profile`.
+- `algorithm`, `/route` only: `astar` (default), `dijkstra`, `ch`.
+- `concavity`, `/isochrone` only: `2.0` (default), zero or greater. Lower values follow the road network more closely, infinity gives a convex boundary.
 
-**Authentication:** with `ITINERA_JWT_SECRET` set, every endpoint except `/health`, `/healthz`,
-`/readyz` and `/metrics` needs an `Authorization: Bearer` header holding a JWT signed with that
-secret. With the variable unset the server answers every request.
+**Authentication:** with `ITINERA_JWT_SECRET` set, every endpoint except `/health`, `/healthz`, `/readyz` and `/metrics` needs an `Authorization: Bearer` header holding an HS256 JWT signed with that secret, carrying `sub`, `exp` and `role` claims. With the variable unset the server answers every request. `docker-compose.yml` sets it to `change-me-in-production`.
 
-**Network analysis:** points are given as `{"lat": ..., "lon": ...}` and snap to the nearest
-graph node. `/network/od-matrix` takes `origins` and `destinations`, `/network/closest-facility`
-takes `demand_points` and `facilities`, both capped at 100 points per list and 2500 pairs per
-request. `/network/betweenness` takes `sample_size` (1–1000, default 64). `/network/components`
-and `/network/betweenness` return the `top_k` largest results (default 20). Costs are travel
-times in seconds under the requested `profile`.
+**Network analysis:** points are given as `{"lat": ..., "lon": ...}` and snap to the nearest graph node. `/network/od-matrix` takes `origins` and `destinations`, `/network/closest-facility` takes `demand_points` and `facilities`, both capped at 100 points per list and 2500 pairs per request. `/network/betweenness` takes `sample_size` (1 to 1000, default 64). `/network/components` and `/network/betweenness` return the `top_k` largest results (default 20). Costs are travel times in seconds under the requested `profile`.
 
 ```bash
 curl -X POST http://localhost:5000/network/od-matrix \
@@ -134,15 +114,7 @@ curl -X POST http://localhost:5000/network/od-matrix \
   -d '{"origins":[{"lat":48.8566,"lon":2.3522}],"destinations":[{"lat":48.8738,"lon":2.2950}]}'
 ```
 
-**Map matching:** `POST /match` takes a `trace` of `{"lat": ..., "lon": ...}` points, each
-optionally carrying `timestamp`, `accuracy_m`, `speed_mps` and `bearing_deg`, which are
-accepted but do not yet steer the match. The optional
-`profile` is `driving` (default), `walking` or `cycling`, and `search_radius_m` (default 50,
-max 1000) sets how far from a point the matcher looks for roads. A trace holds 1 to 1000
-points. The trace is snapped to the graph the server loaded, which is indexed as one segment
-per road, so a two-way road counts once. The response gives the snapped points with their
-road names, the matched route, a confidence in 0 to 1, the total distance, and the roads the
-trace ran along with their travel times under the requested profile.
+**Map matching:** `POST /match` takes a `trace` of `{"lat": ..., "lon": ...}` points, each optionally carrying `timestamp`, `accuracy_m`, `speed_mps` and `bearing_deg`, which are accepted but do not steer the match. The optional `profile` is `driving` (default), `walking` or `cycling`, and `search_radius_m` (default 50, max 1000) sets how far from a point the matcher looks for roads. A trace holds 1 to 1000 points. The graph is indexed as one segment per road, so a two-way road counts once. The response gives the snapped points with their road names, the matched route, a confidence from 0 to 1, the total distance, and the roads the trace ran along with their travel times under the requested profile.
 
 ```bash
 curl -X POST http://localhost:5000/match \
@@ -163,15 +135,9 @@ curl -X POST http://localhost:5000/match \
 }
 ```
 
----
-
 ## Performance
 
-Measured with `cargo bench -p itinera-core --bench performance_targets` on a
-24-core Threadripper with 128 GB RAM. The fixtures are generated street grids,
-the repo ships no road network, so each row names the size actually measured.
-The last column keeps the original design targets at Germany scale (20M
-edges), which nothing here has measured.
+Measured with `cargo bench -p itinera-core --bench performance_targets` on a 24-core Threadripper with 128 GB RAM. The fixtures are generated street grids, since the repo ships no road network, so each row names the size actually measured. The last column keeps the original design targets at Germany scale (20M edges), which nothing here has measured.
 
 | Operation | Measured | On | Target at Germany scale |
 |--------|--------|--------|--------|
@@ -183,11 +149,7 @@ edges), which nothing here has measured.
 | Binary graph save and load | 56 ms and 90 ms | 56 MiB | < 2 s load |
 | Memory | not measured | serialized size is 56 MiB at 1.05M edges | < 2 GB |
 
-CH preprocessing time grows steeply with node count because the node ordering
-rescans every remaining node at each level, so the 576-node figure does not
-extrapolate to large graphs.
-
----
+CH preprocessing time grows steeply with node count because the node ordering rescans every remaining node at each level, so the 576-node figure does not extrapolate to large graphs.
 
 ## Routing Profiles
 
@@ -195,42 +157,28 @@ extrapolate to large graphs.
 |---------|----------|-------|---------|-----------|----------|--------------|-------------|
 | Car | 130 | 100 | 80 | 60 | 50 | 40 | 30 |
 | Truck | 90 | 80 | 60 | 50 | 40 | 30 | 20 |
-| Bicycle | — | 25 | 22 | 20 | 18 | 16 | 15 |
-| Pedestrian | — | 5 | 5 | 5 | 5 | 5 | 5 |
+| Bicycle | no access | 25 | 22 | 20 | 18 | 16 | 15 |
+| Pedestrian | no access | 5 | 5 | 5 | 5 | 5 | 5 |
 
-Speeds in km/h. "—" means road class is inaccessible for that mode.
-
----
+Speeds in km/h. `*_link` roads take their parent's class, `road` counts as unclassified, and `living_street` and `service` as residential. Import skips every other `highway` value, including `footway`, `path`, `cycleway` and `track`, so the bicycle and pedestrian profiles route on roads only. The truck table has no weight or height limits. `bike`, `foot`, `walk` and `hgv` are accepted as profile aliases.
 
 ## Maneuver Detection
 
-Itinera detects turn-by-turn maneuvers using bearing-difference analysis:
-
-| Angle | Maneuver |
+| Bearing change | Maneuver |
 |-------|----------|
 | < 10° | Continue |
-| 10–45° | Slight turn |
-| 45–135° | Turn |
-| 135–170° | Sharp turn |
+| 10° to 45° | Slight turn |
+| 45° to 135° | Turn |
+| 135° to 170° | Sharp turn |
 | > 170° | U-turn |
-
----
 
 ## Development
 
 ```bash
-# Run all tests
 cargo test --all
-
-# Format & lint (required before commit)
-cargo fmt --all
+cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
-
-# Build release binary
-cargo build --release
 ```
-
----
 
 ## License
 

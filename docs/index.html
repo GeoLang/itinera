@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Itinera — Pure-Rust Routing Engine</title>
+<title>Itinera: Routing Engine in Rust</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--heading:#f0f6fc;--accent:#58a6ff;--accent2:#3fb950;--muted:#8b949e;--red:#f85149}
@@ -45,24 +45,23 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <body>
 <header>
 <div class="container">
-<h1>🛣️ Itinera</h1>
-<p class="tagline">Pure-Rust routing engine — a modern alternative to OSRM, Valhalla, and GraphHopper. Routing core with no C dependencies.</p>
+<h1>Itinera</h1>
+<p class="tagline">A routing engine in Rust for OpenStreetMap road networks: shortest paths, contraction hierarchies, isochrones, map matching and network analysis over HTTP.</p>
 <div class="badges">
 <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
 <img src="https://img.shields.io/badge/Rust-2024-orange" alt="Rust">
-<img src="https://img.shields.io/badge/tests-102_passing-brightgreen" alt="Tests">
 <img src="https://github.com/GeoLang/itinera/actions/workflows/ci.yml/badge.svg" alt="CI">
 </div>
 <div class="hero">
 <a href="https://github.com/GeoLang/itinera">GitHub</a>
 <a href="https://github.com/GeoLang/itinera#quick-start" class="secondary">Quick Start</a>
-<a href="#comparison" class="secondary">vs Competitors</a>
+<a href="./openapi.yaml" class="secondary">OpenAPI spec</a>
 <a href="./api/" class="secondary">API docs</a>
 </div>
 <div class="stats">
 <div class="stat"><div class="num">6</div><div class="label">Rust crates</div></div>
-<div class="stat"><div class="num">102</div><div class="label">Unit tests</div></div>
-<div class="stat"><div class="num">170 us</div><div class="label">CH query, measured on a 576-node grid</div></div>
+<div class="stat"><div class="num">13</div><div class="label">HTTP endpoints</div></div>
+<div class="stat"><div class="num">170 us</div><div class="label">CH query on a 576-node grid, <a href="https://github.com/GeoLang/itinera#performance">measured</a></div></div>
 <div class="stat"><div class="num">0</div><div class="label">C dependencies in the routing core</div></div>
 </div>
 </div>
@@ -73,7 +72,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <h2>Features</h2>
 <div class="grid">
 <div class="card">
-<h3>🧮 Routing Algorithms</h3>
+<h3>Routing Algorithms</h3>
 <ul>
 <li>Dijkstra shortest-path</li>
 <li>A* with haversine heuristic</li>
@@ -83,86 +82,58 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 </ul>
 </div>
 <div class="card">
-<h3>🗺️ OSM Import</h3>
+<h3>OSM Import</h3>
 <ul>
 <li>XML (.osm) parser</li>
 <li>PBF (.osm.pbf) via osmpbf crate</li>
-<li>Highway tag classification</li>
+<li><code>highway</code> motorway to residential, plus service and living_street</li>
 <li>One-way detection</li>
 <li>No-turn and only-turn restrictions from OSM relations, enforced by every search</li>
 </ul>
 </div>
 <div class="card">
-<h3>📊 Graph Engine</h3>
+<h3>Graph Engine</h3>
 <ul>
 <li>Compressed Sparse Row (CSR)</li>
 <li>Reverse CSR for bidirectional search</li>
 <li>R-tree spatial index (rstar)</li>
-<li>Bincode serialization</li>
+<li>Bincode graph file, written once by <code>itinera import</code></li>
 </ul>
 </div>
 <div class="card">
-<h3>🚗 Routing Profiles</h3>
+<h3>Routing Profiles</h3>
 <ul>
-<li>Car (motorway-optimized)</li>
-<li>Bicycle (avoids motorways)</li>
-<li>Pedestrian (walking speed)</li>
-<li>Truck (lower speed table; no weight tags)</li>
-<li>Four builtin profiles; new ones require Rust code</li>
+<li>Car, 130 km/h on motorways down to 30 on residential</li>
+<li>Bicycle, no motorway access</li>
+<li>Pedestrian, 5 km/h, roads only since footways are not imported</li>
+<li>Truck, a lower speed table with no weight or height limits</li>
+<li>A new profile means a new speed table in Rust</li>
 </ul>
 </div>
 <div class="card">
-<h3>🧭 Navigation</h3>
+<h3>Navigation</h3>
 <ul>
 <li>Turn-by-turn instructions on all three searches, CH included</li>
 <li>Bearing-based maneuver detection</li>
 <li>Road name annotations</li>
-<li>Depart / Arrive markers</li>
-<li>Slight / Sharp / U-turn classification</li>
+<li>Depart and Arrive steps</li>
+<li>Slight, sharp and U-turn by bearing change</li>
 </ul>
 </div>
 <div class="card">
-<h3>🌐 HTTP API</h3>
+<h3>HTTP API</h3>
 <ul>
 <li>Axum-based REST server</li>
-<li>Route / Nearest / Isochrone / Health</li>
+<li>Route, nearest node, isochrone</li>
 <li>Map matching, delivery stop ordering, network analysis</li>
 <li>Profile selection via query param</li>
 <li>Algorithm selection (dijkstra/astar/ch)</li>
-<li>CORS support for browsers</li>
-<li>Optional JWT auth behind ITINERA_JWT_SECRET</li>
+<li>Permissive CORS</li>
+<li>Optional JWT auth with <code>ITINERA_JWT_SECRET</code></li>
+<li>Points outside the loaded network get a 400 naming its bounds</li>
 </ul>
 </div>
 </div>
-</div>
-</section>
-
-<section id="comparison">
-<div class="container">
-<h2>Itinera vs The Industry</h2>
-<table>
-<thead>
-<tr><th></th><th>OSRM</th><th>Valhalla</th><th>GraphHopper</th><th>Itinera</th></tr>
-</thead>
-<tbody>
-<tr><td>Language</td><td>C++</td><td>C++</td><td>Java</td><td><strong>Rust</strong></td></tr>
-<tr><td>Memory safety</td><td class="cross">❌</td><td class="cross">❌</td><td>✅ (GC)</td><td class="check">✅</td></tr>
-<tr><td>Zero C deps</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌ (JVM)</td><td class="check">✅ routing core only (server TLS/JWT pulls ring, aws-lc-sys)</td></tr>
-<tr><td>WASM target</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td></tr>
-<tr><td>Single binary</td><td class="cross">❌</td><td class="cross">❌</td><td class="cross">❌</td><td class="check">✅</td></tr>
-<tr><td>Contraction Hierarchies</td><td class="check">✅</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>A* search</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Isochrones</td><td class="cross">❌</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Turn-by-turn</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Multi-profile</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>PBF import</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Turn restrictions</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>Nearest node search</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅ R-tree built once and kept</td></tr>
-<tr><td>Binary graph format</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td><td class="check">✅</td></tr>
-<tr><td>License</td><td>BSD-2</td><td>MIT</td><td>Apache-2</td><td><strong>AGPL-3.0</strong></td></tr>
-<tr><td>Lines of code</td><td>~150K</td><td>~200K</td><td>~300K</td><td><strong>~8K</strong></td></tr>
-</tbody>
-</table>
 </div>
 </section>
 
@@ -189,8 +160,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>GET</td><td><code>/route?from=lat,lon&amp;to=lat,lon</code></td><td>Compute shortest route</td></tr>
-<tr><td>GET</td><td><code>/nearest?lat=...&amp;lon=...</code></td><td>Find nearest graph node</td></tr>
+<tr><td>GET</td><td><code>/route?from=lat,lon&amp;to=lat,lon</code></td><td>Shortest route with turn-by-turn steps</td></tr>
+<tr><td>GET</td><td><code>/nearest?lat=...&amp;lon=...</code></td><td>Nearest graph node</td></tr>
 <tr><td>GET</td><td><code>/isochrone?lat=...&amp;lon=...&amp;max_seconds=...</code></td><td>Reachability polygon</td></tr>
 <tr><td>POST</td><td><code>/match</code></td><td>Snap a GPS trace to the road network</td></tr>
 <tr><td>POST</td><td><code>/delivery/optimize</code></td><td>Stop ordering over great-circle distances at a fixed 30 km/h, not road distances</td></tr>
@@ -203,36 +174,32 @@ footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color
 <tr><td>GET</td><td><code>/metrics</code></td><td>Prometheus metrics</td></tr>
 </tbody>
 </table>
-<p style="margin-top:16px;color:var(--muted)"><strong>Query params:</strong> <code>profile</code> (car|bicycle|pedestrian|truck), <code>algorithm</code> (dijkstra|astar|ch), <code>concavity</code> on <code>/isochrone</code> (default 2.0, lower hugs the road network more closely)</p>
-<p style="margin-top:16px;color:var(--muted)"><strong>Auth:</strong> set <code>ITINERA_JWT_SECRET</code> and every endpoint except <code>/health</code>, <code>/healthz</code>, <code>/readyz</code> and <code>/metrics</code> requires a bearer JWT signed with it. Leave it unset and the server answers everything. The full request and response shapes are in <a href="./openapi.yaml">openapi.yaml</a>.</p>
+<p style="margin-top:16px;color:var(--muted)"><strong>Query params:</strong> <code>profile</code> (car, bicycle, pedestrian, truck, defaulting to the server's <code>--profile</code>), <code>algorithm</code> on <code>/route</code> (astar by default, dijkstra, ch), <code>concavity</code> on <code>/isochrone</code> (default 2.0, lower follows the road network more closely)</p>
+<p style="margin-top:16px;color:var(--muted)"><strong>Auth:</strong> set <code>ITINERA_JWT_SECRET</code> and every endpoint except <code>/health</code>, <code>/healthz</code>, <code>/readyz</code> and <code>/metrics</code> requires an HS256 bearer JWT signed with it, carrying <code>sub</code>, <code>exp</code> and <code>role</code>. Leave it unset and the server answers everything. The full request and response shapes are in <a href="./openapi.yaml">openapi.yaml</a>.</p>
 </div>
 </section>
 
 <section>
 <div class="container">
 <h2>Quick Start</h2>
-<pre># Build from source
-git clone https://github.com/GeoLang/itinera.git
-cd itinera &amp;&amp; cargo build --release
-
-# Import OSM data
+<pre>cargo install --path crates/itinera-cli
 itinera import --input region.osm.pbf --output graph.bin
 
-# Pre-build Contraction Hierarchies
+# optional, for algorithm=ch, built for one profile
 itinera preprocess --graph graph.bin --output ch.bin --profile car
 
-# Start the routing server
 itinera serve --bind 0.0.0.0:5000 --graph graph.bin --ch ch.bin
+curl "http://localhost:5000/route?from=48.8566,2.3522&amp;to=48.8738,2.2950&amp;profile=car"
 
-# Query a route
-curl "http://localhost:5000/route?from=48.8566,2.3522&amp;to=48.8738,2.2950&amp;profile=car"</pre>
+# Docker: imports /data/region.osm.pbf on first start, serves on port 3000
+docker run -p 3000:3000 -v "$PWD/data:/data" ghcr.io/geolang/itinera:latest</pre>
 </div>
 </section>
 
 <footer>
 <div class="container">
 <p>Itinera is free software under the <a href="https://github.com/GeoLang/itinera/blob/master/LICENSE">AGPL-3.0 license</a>.</p>
-<p style="margin-top:8px">Made by <a href="https://github.com/GeoLang">GeoLang</a> — routing for the open geospatial stack.</p>
+<p style="margin-top:8px">Part of the <a href="https://github.com/GeoLang">GeoLang</a> geospatial platform.</p>
 <p>&copy; 2026 Grok Image Compression Inc. Licensed under AGPL-3.0-or-later.</p>
 </div>
 </footer>
