@@ -130,7 +130,8 @@ curl -X POST http://localhost:5000/match \
   "geometry": [[48.8566, 2.3522], [48.8606, 2.3376], [48.8738, 2.2950]],
   "steps": [
     {"distance_m": 1200, "duration_s": 72, "name": "Rue de Rivoli", "maneuver": "Depart"},
-    {"distance_m": 3500, "duration_s": 210, "name": "Champs-Élysées", "maneuver": "TurnRight"}
+    {"distance_m": 3500, "duration_s": 210, "name": "Champs-Élysées", "maneuver": "TurnRight"},
+    {"distance_m": 0, "duration_s": 0, "name": "Champs-Élysées", "maneuver": "Arrive"}
   ]
 }
 ```

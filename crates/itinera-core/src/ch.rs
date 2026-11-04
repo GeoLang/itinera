@@ -775,7 +775,7 @@ mod tests {
 
         assert!((route.distance_m - 1500.0).abs() < 1e-6);
         assert!(!route.steps.is_empty());
-        assert_eq!(route.steps.len(), node_ids.len() - 1);
+        assert_eq!(route.steps.len(), node_ids.len());
 
         let ped = SpeedProfile::pedestrian();
         let ch_ped = ContractionHierarchy::build(&g, &ped);

@@ -92,8 +92,13 @@ pub fn route_from_path(
         }
     }
 
-    if let Some(last) = steps.last_mut() {
-        last.maneuver = StepManeuver::Arrive;
+    if let Some(last_edge_name) = steps.last().map(|step| step.name.clone()) {
+        steps.push(RouteStep {
+            distance_m: 0.0,
+            duration_s: 0.0,
+            name: last_edge_name,
+            maneuver: StepManeuver::Arrive,
+        });
     }
 
     Route {

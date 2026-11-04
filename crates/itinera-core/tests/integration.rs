@@ -1,7 +1,8 @@
 //! Integration tests for the Itinera routing engine.
 
 use itinera_core::{
-    ContractionHierarchy, DEFAULT_CONCAVITY, astar, dijkstra, isochrone, route_from_path,
+    ContractionHierarchy, DEFAULT_CONCAVITY, StepManeuver, astar, dijkstra, isochrone,
+    route_from_path,
 };
 use itinera_graph::{Coord, Edge, Graph, Node, NodeId, SpeedProfile, TurnRestriction};
 
@@ -180,8 +181,45 @@ fn test_linear_route_steps() {
     let route = dijkstra(&g, NodeId(0), NodeId(4), &profile).unwrap();
 
     assert_eq!(route.node_ids, vec![0, 1, 2, 3, 4]);
-    assert_eq!(route.steps.len(), 4);
+    assert_eq!(route.steps.len(), 5);
     assert_eq!(route.distance_m, 2000.0);
+}
+
+#[test]
+fn test_route_keeps_the_last_turn_and_appends_a_zero_length_arrive_step() {
+    let g = grid_3x3();
+    let profile = SpeedProfile::car();
+    let route = route_from_path(&g, &[0, 1, 4], &profile, 120.0);
+
+    assert_eq!(route.steps.len(), 3);
+    assert!(matches!(route.steps[0].maneuver, StepManeuver::Depart));
+    assert!(matches!(route.steps[1].maneuver, StepManeuver::TurnLeft));
+    assert_eq!(route.steps[1].distance_m, 1000.0);
+    assert!(matches!(route.steps[2].maneuver, StepManeuver::Arrive));
+    assert_eq!(route.steps[2].distance_m, 0.0);
+    assert_eq!(route.steps[2].duration_s, 0.0);
+    assert_eq!(route.distance_m, 2000.0);
+}
+
+#[test]
+fn test_one_edge_route_departs_then_arrives_on_the_same_road() {
+    let g = linear_5();
+    let profile = SpeedProfile::car();
+    let route = route_from_path(&g, &[0, 1], &profile, 30.0);
+
+    assert_eq!(route.steps.len(), 2);
+    assert!(matches!(route.steps[0].maneuver, StepManeuver::Depart));
+    assert!(matches!(route.steps[1].maneuver, StepManeuver::Arrive));
+    assert_eq!(route.steps[1].name.as_deref(), Some("Road 1"));
+}
+
+#[test]
+fn test_same_node_route_has_no_steps() {
+    let g = grid_3x3();
+    let profile = SpeedProfile::car();
+    let route = route_from_path(&g, &[4], &profile, 0.0);
+
+    assert!(route.steps.is_empty());
 }
 
 #[test]
@@ -490,7 +528,7 @@ fn test_ch_route_from_path_uses_edge_lengths() {
     let route = route_from_path(&g, &node_ids, &profile, cost);
 
     assert!((route.distance_m - 2000.0).abs() < 1e-6);
-    assert_eq!(route.steps.len(), 4);
+    assert_eq!(route.steps.len(), 5);
 }
 
 #[test]

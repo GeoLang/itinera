@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `route_from_path` appends a zero-length `Arrive` step after the last edge,
+  named after the last edge's road. `Arrive` used to replace the maneuver on the
+  last edge, so the final turn was lost and a one-edge route had no `Depart`.
+  Routes now have one more entry in `steps` than they have edges.
 - Route, isochrone, od-matrix and closest-facility refuse a point outside the
   coverage instead of snapping it to whatever node is nearest. Against a Monaco
   extract, `GET /isochrone?lat=43.647&lon=-79.41&max_seconds=600` returned the
