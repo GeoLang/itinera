@@ -5,7 +5,6 @@
 //!
 //! Enterprise features: Prometheus metrics, JWT auth, health/readiness probes.
 
-pub mod auth;
 mod handlers;
 pub mod metrics;
 mod state;

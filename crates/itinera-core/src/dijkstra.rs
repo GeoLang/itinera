@@ -1,42 +1,8 @@
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
-
 use itinera_graph::{Graph, NodeId, SpeedProfile};
 
+use crate::astar::astar_search;
 use crate::error::RoutingError;
-use crate::route::{Route, route_from_path};
-
-/// State in the priority queue. `incoming_way` 0 means no previous way.
-#[derive(Debug, Clone)]
-struct State {
-    cost: f64,
-    node: NodeId,
-    incoming_way: i64,
-}
-
-impl PartialEq for State {
-    fn eq(&self, other: &Self) -> bool {
-        self.cost == other.cost
-    }
-}
-
-impl Eq for State {}
-
-impl PartialOrd for State {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for State {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse ordering for min-heap
-        other
-            .cost
-            .partial_cmp(&self.cost)
-            .unwrap_or(Ordering::Equal)
-    }
-}
+use crate::route::Route;
 
 /// Dijkstra's shortest path algorithm.
 ///
@@ -48,102 +14,7 @@ pub fn dijkstra(
     target: NodeId,
     profile: &SpeedProfile,
 ) -> Result<Route, RoutingError> {
-    let n = graph.num_nodes();
-    if n == 0 {
-        return Err(RoutingError::EmptyGraph);
-    }
-
-    let src_idx = source.0 as usize;
-    let tgt_idx = target.0 as usize;
-
-    if src_idx >= n {
-        return Err(RoutingError::NodeNotFound(source.0));
-    }
-    if tgt_idx >= n {
-        return Err(RoutingError::NodeNotFound(target.0));
-    }
-
-    let mut dist: HashMap<(u32, i64), f64> = HashMap::new();
-    let mut prev: HashMap<(u32, i64), (u32, i64)> = HashMap::new();
-    let mut settled: HashSet<(u32, i64)> = HashSet::new();
-
-    dist.insert((source.0, 0), 0.0);
-
-    let mut heap = BinaryHeap::new();
-    heap.push(State {
-        cost: 0.0,
-        node: source,
-        incoming_way: 0,
-    });
-
-    let mut arrival: Option<(i64, f64)> = None;
-
-    while let Some(State {
-        cost,
-        node,
-        incoming_way,
-    }) = heap.pop()
-    {
-        let key = (node.0, incoming_way);
-        if !settled.insert(key) {
-            continue;
-        }
-
-        if cost > dist.get(&key).copied().unwrap_or(f64::INFINITY) {
-            continue;
-        }
-
-        if node == target {
-            arrival = Some((incoming_way, cost));
-            break;
-        }
-
-        for edge in graph.outgoing_edges(node) {
-            if graph.turn_is_banned(node, incoming_way, edge.way_id) {
-                continue;
-            }
-            let weight = graph.edge_weight(edge, profile);
-            if weight == f64::INFINITY {
-                continue;
-            }
-
-            let next_key = (edge.to.0, edge.way_id);
-            let new_cost = cost + weight;
-
-            if new_cost < dist.get(&next_key).copied().unwrap_or(f64::INFINITY) {
-                dist.insert(next_key, new_cost);
-                prev.insert(next_key, key);
-                heap.push(State {
-                    cost: new_cost,
-                    node: edge.to,
-                    incoming_way: edge.way_id,
-                });
-            }
-        }
-    }
-
-    let Some((arrival_way, duration_s)) = arrival else {
-        return Err(RoutingError::NoRoute {
-            from: format!("{source:?}"),
-            to: format!("{target:?}"),
-        });
-    };
-
-    let mut path = Vec::new();
-    let mut current = (target.0, arrival_way);
-    loop {
-        path.push(current.0);
-        if current.0 == source.0 {
-            break;
-        }
-        current = prev.get(&current).copied().ok_or(RoutingError::NoRoute {
-            from: format!("{source:?}"),
-            to: format!("{target:?}"),
-        })?;
-    }
-    path.reverse();
-
-    Ok(route_from_path(graph, &path, profile, duration_s))
+    astar_search(graph, source, target, profile, |_, _| 0.0)
 }
 
 #[cfg(test)]

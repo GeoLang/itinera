@@ -1,16 +1,9 @@
-pub const EARTH_RADIUS_M: f64 = 6_371_000.0;
+use itinera_graph::{Coord, EARTH_RADIUS_M};
 
-/// Meters per degree of latitude on the sphere `haversine` measures.
 pub const METERS_PER_DEGREE: f64 = EARTH_RADIUS_M * std::f64::consts::PI / 180.0;
 
-/// Haversine distance in meters between two lat/lon points.
-pub fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let r = EARTH_RADIUS_M;
-    let dlat = (lat2 - lat1).to_radians();
-    let dlon = (lon2 - lon1).to_radians();
-    let a = (dlat / 2.0).sin().powi(2)
-        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
-    2.0 * r * a.sqrt().asin()
+pub fn lon_lat_coord(point: [f64; 2]) -> Coord {
+    Coord::new(point[1], point[0])
 }
 
 /// Perpendicular distance from a point to a line segment, and the nearest point.
@@ -51,14 +44,7 @@ mod tests {
     }
 
     #[test]
-    fn test_haversine_zero() {
-        assert_eq!(haversine(0.0, 0.0, 0.0, 0.0), 0.0);
-    }
-
-    #[test]
-    fn test_haversine_known_distance() {
-        // ~111 km per degree at equator
-        let d = haversine(0.0, 0.0, 1.0, 0.0);
-        assert!((d - 111_195.0).abs() < 100.0);
+    fn lon_lat_coord_swaps_the_axes() {
+        assert_eq!(lon_lat_coord([7.41, 43.72]), Coord::new(43.72, 7.41));
     }
 }

@@ -18,8 +18,8 @@ use itinera_core::{
 use itinera_graph::{Coord, Graph, NodeId, SpeedProfile};
 use itinera_match::{GpsPoint, MapMatchRequest, MapMatchResult, MatchProfile, match_trace};
 
+use crate::metrics;
 use crate::state::AppState;
-use crate::{auth, metrics};
 
 /// Build the HTTP router.
 pub fn router(state: AppState) -> Router {
@@ -40,7 +40,14 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(liveness_handler))
         .route("/readyz", get(readiness_handler))
         .route("/metrics", get(metrics::metrics_handler))
-        .layer(middleware::from_fn(auth::auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            platform_auth::TokenGate::new(std::env::var_os("ITINERA_JWT_SECRET").map(|secret| {
+                secret
+                    .into_string()
+                    .unwrap_or_else(|_| panic!("ITINERA_JWT_SECRET is set but not UTF-8"))
+            })),
+            platform_auth::auth_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)

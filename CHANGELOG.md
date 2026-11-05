@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-11-05
+
+### Fixed
+
+- An `ITINERA_JWT_SECRET` that is set but not valid UTF-8 stops the server at
+  startup with an error naming the variable. It used to count as unset, which
+  turned auth off.
+
+## [Unreleased] - 2026-11-04
+
+### Changed
+
+- Token checks moved to the `platform-auth` crate. The open routes and the `role`
+  requirement are the same. `ITINERA_JWT_SECRET` is read once when the router is
+  built instead of on every request. These tokens now get a 401 where they used
+  to pass: an empty `sub`, a non-string `name`, a non-string `aud`, any
+  `token_use` claim, and an `agora_use` or `geolang_use` claim. With
+  `ITINERA_JWT_SECRET` set to an empty or whitespace-only string, every token is
+  refused on the closed routes, where a token signed with that key used to pass.
+- `jsonwebtoken` moved from 9 to 11 with the `aws_lc_rs` backend, and `ring` is
+  no longer in the server build. `aws-lc-sys` still needs a C compiler.
+- CI and the release workflow call the reusable workflows in `GeoLang/.github`.
+  The `itinera-<target>.tar.gz` archives and the image tags are unchanged.
+
+### Removed
+
+- The `itinera_server::auth` module.
+
 ## [Unreleased] - 2026-09-20
 
 ### Added

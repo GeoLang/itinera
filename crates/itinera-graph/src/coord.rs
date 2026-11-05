@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub(crate) const EARTH_RADIUS_M: f64 = 6_371_000.0;
+pub const EARTH_RADIUS_M: f64 = 6_371_000.0;
 
 /// WGS84 coordinate.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -39,5 +39,22 @@ impl Coord {
         let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * d_lon.cos();
         let bearing = y.atan2(x).to_degrees();
         (bearing + 360.0) % 360.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distance_between_identical_points_is_zero() {
+        let origin = Coord::new(0.0, 0.0);
+        assert_eq!(origin.distance_to(origin), 0.0);
+    }
+
+    #[test]
+    fn distance_of_one_degree_of_latitude_at_the_equator() {
+        let distance = Coord::new(0.0, 0.0).distance_to(Coord::new(1.0, 0.0));
+        assert!((distance - 111_195.0).abs() < 100.0);
     }
 }

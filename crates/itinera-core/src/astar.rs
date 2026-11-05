@@ -40,21 +40,18 @@ impl Ord for AStarState {
 
 /// Heuristic: estimated travel time from coord to target using haversine distance
 /// at a generous max speed (150 km/h) to ensure admissibility.
-fn heuristic(from: Coord, to: Coord) -> f64 {
+fn travel_time_heuristic(from: Coord, to: Coord) -> f64 {
     let dist = from.distance_to(to);
     // time = distance / speed; 150 km/h = 41.67 m/s
     dist / 41.67
 }
 
-/// A* shortest path algorithm with haversine heuristic.
-///
-/// Typically 2-5x faster than Dijkstra for long-distance routes
-/// due to directed search toward the target.
-pub fn astar(
+pub(crate) fn astar_search(
     graph: &Graph,
     source: NodeId,
     target: NodeId,
     profile: &SpeedProfile,
+    heuristic: fn(Coord, Coord) -> f64,
 ) -> Result<Route, RoutingError> {
     let n = graph.num_nodes();
     if n == 0 {
@@ -168,6 +165,19 @@ pub fn astar(
     path.reverse();
 
     Ok(route_from_path(graph, &path, profile, duration_s))
+}
+
+/// A* shortest path algorithm with haversine heuristic.
+///
+/// Typically 2-5x faster than Dijkstra for long-distance routes
+/// due to directed search toward the target.
+pub fn astar(
+    graph: &Graph,
+    source: NodeId,
+    target: NodeId,
+    profile: &SpeedProfile,
+) -> Result<Route, RoutingError> {
+    astar_search(graph, source, target, profile, travel_time_heuristic)
 }
 
 #[cfg(test)]

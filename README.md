@@ -2,7 +2,7 @@
 
 A routing engine in Rust for OpenStreetMap road networks: shortest paths, contraction hierarchies, isochrones, map matching and network analysis over HTTP.
 
-The routing crates have no C dependencies. The server's JWT stack pulls in `ring` and `aws-lc-sys`. Everything ships as one `itinera` binary.
+The routing crates have no C dependencies. The server's JWT stack pulls in `aws-lc-sys`. Everything ships as one `itinera` binary.
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)

@@ -12,7 +12,7 @@ mod profile;
 pub mod turn;
 
 pub use bbox::BoundingBox;
-pub use coord::Coord;
+pub use coord::{Coord, EARTH_RADIUS_M};
 pub use edge::{Edge, EdgeId, ROAD_CLASS_NAMES, road_class_name};
 pub use graph::Graph;
 pub use node::{Node, NodeId};

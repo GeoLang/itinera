@@ -2,9 +2,10 @@
 
 use std::collections::HashMap;
 
+use itinera_graph::Coord;
 use uuid::Uuid;
 
-use crate::geo::haversine;
+use crate::geo::lon_lat_coord;
 use crate::network::RoadNetwork;
 use crate::types::{MapMatchRequest, MapMatchResult, MatchProfile, MatchedPoint, MatchedSegment};
 
@@ -69,12 +70,14 @@ pub fn match_trace(request: &MapMatchRequest, network: &RoadNetwork) -> MapMatch
         let curr_cands = &all_candidates[t];
         let prev_probs = &viterbi_prob[t - 1];
 
-        let gps_dist = haversine(
+        let gps_dist = Coord::new(
             request.trace[t - 1].latitude,
             request.trace[t - 1].longitude,
+        )
+        .distance_to(Coord::new(
             request.trace[t].latitude,
             request.trace[t].longitude,
-        );
+        ));
 
         let mut probs = vec![f64::NEG_INFINITY; curr_cands.len()];
         let mut prevs = vec![0usize; curr_cands.len()];
@@ -89,12 +92,8 @@ pub fn match_trace(request: &MapMatchRequest, network: &RoadNetwork) -> MapMatch
                 let prev_snap_pt = *prev_snap;
                 let curr_snap_pt = curr_cands[j].2;
 
-                let route_dist = haversine(
-                    prev_snap_pt[1],
-                    prev_snap_pt[0],
-                    curr_snap_pt[1],
-                    curr_snap_pt[0],
-                );
+                let route_dist =
+                    lon_lat_coord(prev_snap_pt).distance_to(lon_lat_coord(curr_snap_pt));
 
                 let transition = transition_log_prob(route_dist, gps_dist, beta);
 
@@ -165,7 +164,7 @@ pub fn match_trace(request: &MapMatchRequest, network: &RoadNetwork) -> MapMatch
             if t > 0
                 && let Some(prev) = route.get(route.len().wrapping_sub(2))
             {
-                let d = haversine(prev[1], prev[0], snap[1], snap[0]);
+                let d = lon_lat_coord(*prev).distance_to(lon_lat_coord(*snap));
                 total_distance += d;
                 *segment_distances.entry(*seg_idx).or_insert(0.0) += d;
             }

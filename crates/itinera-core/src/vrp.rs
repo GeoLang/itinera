@@ -5,12 +5,20 @@
 //!
 //! Uses nearest-neighbor heuristic + 2-opt local search improvement.
 
+use itinera_graph::Coord;
+
 /// A stop in a delivery route.
 #[derive(Debug, Clone)]
 pub struct Stop {
     pub id: String,
     pub lat: f64,
     pub lng: f64,
+}
+
+impl Stop {
+    fn coord(&self) -> Coord {
+        Coord::new(self.lat, self.lng)
+    }
 }
 
 /// Result of route optimization.
@@ -39,7 +47,7 @@ pub fn optimize_route(depot: &Stop, stops: &[Stop], return_to_depot: bool) -> Op
         };
     }
     if stops.len() == 1 {
-        let d = haversine(depot.lat, depot.lng, stops[0].lat, stops[0].lng);
+        let d = depot.coord().distance_to(stops[0].coord());
         let total = if return_to_depot { d * 2.0 } else { d };
         return OptimizedRoute {
             order: vec![0],
@@ -51,10 +59,10 @@ pub fn optimize_route(depot: &Stop, stops: &[Stop], return_to_depot: bool) -> Op
     let n = stops.len() + 1;
     let mut dist = vec![vec![0.0f64; n]; n];
     for i in 0..stops.len() {
-        dist[0][i + 1] = haversine(depot.lat, depot.lng, stops[i].lat, stops[i].lng);
+        dist[0][i + 1] = depot.coord().distance_to(stops[i].coord());
         dist[i + 1][0] = dist[0][i + 1];
         for j in (i + 1)..stops.len() {
-            let d = haversine(stops[i].lat, stops[i].lng, stops[j].lat, stops[j].lng);
+            let d = stops[i].coord().distance_to(stops[j].coord());
             dist[i + 1][j + 1] = d;
             dist[j + 1][i + 1] = d;
         }
@@ -195,16 +203,6 @@ fn route_distance(tour: &[usize], dist: &[Vec<f64>], return_to_depot: bool) -> f
         total += dist[*tour.last().unwrap()][0];
     }
     total
-}
-
-fn haversine(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
-    const R: f64 = 6_371_000.0;
-    let d_lat = (lat2 - lat1).to_radians();
-    let d_lng = (lng2 - lng1).to_radians();
-    let lat1 = lat1.to_radians();
-    let lat2 = lat2.to_radians();
-    let a = (d_lat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (d_lng / 2.0).sin().powi(2);
-    R * 2.0 * a.sqrt().asin()
 }
 
 #[cfg(test)]

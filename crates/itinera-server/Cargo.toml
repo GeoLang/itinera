@@ -15,7 +15,7 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 axum = "0.8"
-jsonwebtoken = "9"
+platform-auth = { git = "https://github.com/GeoLang/platform-crates.git", branch = "master" }
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
@@ -25,4 +25,5 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 tower = { version = "0.5", features = ["util"] }

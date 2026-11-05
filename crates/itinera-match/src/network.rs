@@ -1,8 +1,9 @@
+use itinera_graph::Coord;
 use rstar::primitives::{GeomWithData, Rectangle};
 use rstar::{AABB, RTree};
 use uuid::Uuid;
 
-use crate::geo::{METERS_PER_DEGREE, haversine, point_to_segment_distance};
+use crate::geo::{METERS_PER_DEGREE, lon_lat_coord, point_to_segment_distance};
 use crate::types::RoadSegment;
 
 /// Bounding rectangle of a segment's geometry, tagged with its index in `segments`.
@@ -48,7 +49,7 @@ impl RoadNetwork {
             let mut best_snap = [lon, lat];
             for w in seg.geometry.windows(2) {
                 let (_d, snap) = point_to_segment_distance([lon, lat], w[0], w[1]);
-                let d_m = haversine(lat, lon, snap[1], snap[0]);
+                let d_m = Coord::new(lat, lon).distance_to(lon_lat_coord(snap));
                 if d_m < best_dist {
                     best_dist = d_m;
                     best_snap = snap;
@@ -185,7 +186,7 @@ mod tests {
                         .windows(2)
                         .map(|w| {
                             let (_d, snap) = point_to_segment_distance([lon, lat], w[0], w[1]);
-                            haversine(lat, lon, snap[1], snap[0])
+                            Coord::new(lat, lon).distance_to(lon_lat_coord(snap))
                         })
                         .fold(f64::MAX, f64::min);
                     (best <= radius_m).then_some(idx)
