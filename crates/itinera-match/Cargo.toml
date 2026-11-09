@@ -9,7 +9,7 @@ description = "HMM-based map matching for GPS trace snapping to road networks"
 
 [dependencies]
 itinera-graph = { workspace = true }
-rstar = "0.12"
+rstar = "0.14"
 serde = { workspace = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 tracing = "0.1"
